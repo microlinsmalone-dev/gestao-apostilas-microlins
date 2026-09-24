@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('ui/Styles'); ?>
+  <!-- SheetJS para leitura instantânea de .xls e .xlsx diretamente no navegador -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('upload')">Arquivo (.xls / .xlsx)</button>
+      <button class="tab-btn" onclick="switchTab('paste')">Colar Dados</button>
+    </div>
+
+    <!-- Aba 1: Upload / Arrastar Arquivo -->
+    <div id="tab-upload">
+      <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <div class="drop-zone-text">Arraste a planilha (.xls / .xlsx) ou clique para selecionar</div>
+        <div class="drop-zone-sub">Arquivo exportado do sistema interno</div>
+        <input type="file" id="file-input" accept=".xls,.xlsx,.csv" style="display: none;" onchange="handleFileSelect(event)">
+      </div>
+    </div>
+
+    <!-- Aba 2: Colar Dados -->
+    <div id="tab-paste" style="display: none;">
+      <textarea id="paste-area" rows="6" placeholder="Cole os dados copiados da planilha..." style="resize: vertical;"></textarea>
+      <button class="btn btn-secondary" style="margin-top: 8px;" onclick="handlePasteProcess()">Processar Dados</button>
+    </div>
+
+    <!-- Painel de Resultados / Pré-visualização -->
+    <div id="preview-panel" style="display: none; margin-top: 14px;">
+      <div class="stats-grid">
+        <div class="stat-card stat-primary">
+          <div class="stat-val" id="stat-total">0</div>
+          <div class="stat-label">Total de Registros</div>
+        </div>
+        <div class="stat-card stat-success">
+          <div class="stat-val" id="stat-validos">0</div>
+          <div class="stat-label">Elegíveis</div>
+        </div>
+        <div class="stat-card stat-warning">
+          <div class="stat-val" id="stat-filtros">0</div>
+          <div class="stat-label">Fora dos Filtros</div>
+        </div>
+        <div class="stat-card stat-danger">
+          <div class="stat-val" id="stat-educadores">0</div>
+          <div class="stat-label">Educadores Desconsiderados</div>
+        </div>
+      </div>
+
+      <!-- Alerta se houver educadores desconsiderados -->
+      <div id="alert-educadores" style="display: none; background: var(--warning-light); border: 1px solid #ffe082; padding: 8px 12px; border-radius: 6px; font-size: 11px; margin-bottom: 10px; color: #795548;">
+        <b>Educadores desconsiderados:</b> <span id="lista-nomes-educadores"></span>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 45%;">Aluno</th>
+              <th style="width: 40%;">Matéria</th>
+              <th style="width: 15%; text-align: center;">Aula Atual</th>
+            </tr>
+          </thead>
+          <tbody id="preview-table-body"></tbody>
+        </table>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-secondary" onclick="google.script.host.close()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-inserir" onclick="confirmarInsercao()">Inserir na Folha de Pedido</button>
+      </div>
+    </div>
+
+    <!-- Indicador de Carregamento -->
+    <div class="loading-overlay" id="loading">
+      <div class="spinner"></div>
+      <div id="loading-text" style="font-weight: 600; color: var(--primary);">Processando dados...</div>
+    </div>
+  </div>
+
+  <script>
+    let dadosProcessadosGlobal = null;
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      if (tab === 'upload') {
+        document.getElementById('tab-upload').style.display = 'block';
+        document.getElementById('tab-paste').style.display = 'none';
+        event.target.classList.add('active');
+      } else {
+        document.getElementById('tab-upload').style.display = 'none';
+        document.getElementById('tab-paste').style.display = 'block';
+        event.target.classList.add('active');
+      }
+    }
+
+    // Configurar Arrastar e Soltar (Drag and Drop)
+    const dropZone = document.getElementById('drop-zone');
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+      }, false);
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        processFile(files[0]);
+      }
+    });
+
+    function handleFileSelect(e) {
+      if (e.target.files.length > 0) {
+        processFile(e.target.files[0]);
+      }
+    }
+
+    function processFile(file) {
+      showLoading('Lendo e analisando arquivo...');
+      const reader = new FileReader();
+
+      reader.onload = function(e) {
+        try {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          
+          // Converte para matriz 2D
+          const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+          if (!rows || rows.length < 2) {
+            throw new Error('A planilha selecionada está vazia ou sem dados válidos.');
+          }
+
+          // Envia para o backend processar com as regras de negócio
+          google.script.run
+            .withSuccessHandler(exibirResultados)
+            .withFailureHandler(tratarErro)
+            .processarDadosImportados(rows);
+
+        } catch (err) {
+          hideLoading();
+          alert('Erro ao ler planilha: ' + err.message);
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+
+    function handlePasteProcess() {
+      const text = document.getElementById('paste-area').value.trim();
+      if (!text) {
+        alert('Cole os dados na caixa de texto primeiro.');
+        return;
+      }
+
+      showLoading('Processando dados colados...');
+      const lines = text.split('\n').map(l => l.split('\t'));
+
+      google.script.run
+        .withSuccessHandler(exibirResultados)
+        .withFailureHandler(tratarErro)
+        .processarDadosImportados(lines);
+    }
+
+    function exibirResultados(resultado) {
+      hideLoading();
+      dadosProcessadosGlobal = resultado.registros;
+
+      document.getElementById('stat-total').innerText = resultado.totalOriginal;
+      document.getElementById('stat-validos').innerText = resultado.totalValidos;
+      document.getElementById('stat-filtros').innerText = resultado.descartadosFiltro;
+      document.getElementById('stat-educadores').innerText = resultado.educadoresDescartados.length;
+
+      // Alerta de Educadores
+      if (resultado.educadoresDescartados.length > 0) {
+        const nomes = [...new Set(resultado.educadoresDescartados.map(e => e.aluno))].join(', ');
+        document.getElementById('lista-nomes-educadores').innerText = nomes;
+        document.getElementById('alert-educadores').style.display = 'block';
+      } else {
+        document.getElementById('alert-educadores').style.display = 'none';
+      }
+
+      // Preenche tabela
+      const tbody = document.getElementById('preview-table-body');
+      tbody.innerHTML = '';
+
+      resultado.registros.slice(0, 100).forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><b>${item.aluno}</b></td>
+          <td>${item.materiaLimpa}</td>
+          <td>${item.aulaAtual ? item.aulaAtual + 'ª' : '-'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('preview-panel').style.display = 'block';
+    }
+
+    function confirmarInsercao() {
+      if (!dadosProcessadosGlobal || dadosProcessadosGlobal.length === 0) {
+        alert('Nenhum registro para inserir.');
+        return;
+      }
+
+      showLoading('Inserindo registros e gerando layout...');
+      document.getElementById('btn-inserir').disabled = true;
+
+      google.script.run
+        .withSuccessHandler((res) => {
+          hideLoading();
+          google.script.host.close();
+        })
+        .withFailureHandler((err) => {
+          hideLoading();
+          document.getElementById('btn-inserir').disabled = false;
+          alert('Erro ao inserir: ' + err.message);
+        })
+        .inserirRegistrosNaFolha(dadosProcessadosGlobal);
+    }
+
+    function tratarErro(erro) {
+      hideLoading();
+      alert('Ocorreu um erro: ' + erro.message);
+    }
+
+    function showLoading(msg) {
+      document.getElementById('loading-text').innerText = msg;
+      document.getElementById('loading').style.display = 'flex';
+    }
+
+    function hideLoading() {
+      document.getElementById('loading').style.display = 'none';
+    }
+  </script>
+</body>
+</html>

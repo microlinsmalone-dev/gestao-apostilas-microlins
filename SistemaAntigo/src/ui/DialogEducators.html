@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('ui/Styles'); ?>
+</head>
+<body>
+  <div class="container">
+    <div class="modal-header">
+      <h2>Configurar Educadores</h2>
+    </div>
+
+    <p style="color: var(--text-secondary); margin-bottom: 14px; font-size: 12px;">
+      Nomes nesta lista são desconsiderados na importação de pedidos caso estejam cadastrados no sistema como alunos:
+    </p>
+
+    <!-- Formulário para adicionar educador -->
+    <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+      <input type="text" id="novo-educador" placeholder="Nome do educador..." onkeypress="handleKeyPress(event)">
+      <button class="btn btn-primary" onclick="adicionarEducador()" style="white-space: nowrap;">Adicionar</button>
+    </div>
+
+    <!-- Lista de Educadores -->
+    <div class="table-container" style="max-height: 280px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Nome do Educador</th>
+            <th style="width: 80px; text-align: center;">Ação</th>
+          </tr>
+        </thead>
+        <tbody id="lista-educadores-body">
+          <tr>
+            <td colspan="2" style="text-align: center; color: var(--text-secondary);">Carregando lista...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="google.script.host.close()">Fechar</button>
+    </div>
+
+    <div class="loading-overlay" id="loading">
+      <div class="spinner"></div>
+      <div style="font-weight: 600; color: var(--primary);">Atualizando lista...</div>
+    </div>
+  </div>
+
+  <script>
+    window.onload = function() {
+      carregarEducadores();
+    };
+
+    function carregarEducadores() {
+      google.script.run
+        .withSuccessHandler(renderizarEducadores)
+        .withFailureHandler(tratarErro)
+        .obterEducadoresIgnorados();
+    }
+
+    function renderizarEducadores(lista) {
+      const tbody = document.getElementById('lista-educadores-body');
+      tbody.innerHTML = '';
+
+      if (!lista || lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2" style="text-align: center;">Nenhum educador cadastrado.</td></tr>';
+        return;
+      }
+
+      lista.forEach(nome => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><b>${nome}</b></td>
+          <td style="text-align: center;">
+            <button class="btn btn-danger" style="padding: 3px 8px; font-size: 11px;" onclick="removerEducador('${nome}')">Remover</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function adicionarEducador() {
+      const input = document.getElementById('novo-educador');
+      const nome = input.value.trim();
+      if (!nome) {
+        alert('Digite o nome do educador.');
+        return;
+      }
+
+      document.getElementById('loading').style.display = 'flex';
+      google.script.run
+        .withSuccessHandler((novaLista) => {
+          document.getElementById('loading').style.display = 'none';
+          input.value = '';
+          renderizarEducadores(novaLista);
+        })
+        .withFailureHandler(tratarErro)
+        .adicionarEducadorIgnorado(nome);
+    }
+
+    function removerEducador(nome) {
+      if (confirm(`Deseja remover "${nome}" da lista de educadores ignorados?`)) {
+        document.getElementById('loading').style.display = 'flex';
+        google.script.run
+          .withSuccessHandler((novaLista) => {
+            document.getElementById('loading').style.display = 'none';
+            renderizarEducadores(novaLista);
+          })
+          .withFailureHandler(tratarErro)
+          .removerEducadorIgnorado(nome);
+      }
+    }
+
+    function handleKeyPress(e) {
+      if (e.key === 'Enter') {
+        adicionarEducador();
+      }
+    }
+
+    function tratarErro(err) {
+      document.getElementById('loading').style.display = 'none';
+      alert('Erro: ' + err.message);
+    }
+  </script>
+</body>
+</html>

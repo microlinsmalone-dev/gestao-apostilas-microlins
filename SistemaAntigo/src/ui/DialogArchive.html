@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base target="_top">
+  <?!= include('ui/Styles'); ?>
+</head>
+
+<body>
+  <div class="container">
+    <div class="modal-header">
+      <h2>Histórico de Pedidos</h2>
+    </div>
+
+    <p style="color: var(--text-secondary); margin-bottom: 12px; font-size: 12px;">
+      Pedidos arquivados no banco de dados consolidado. É possível restaurar qualquer via anterior para conferência:
+    </p>
+
+    <!-- Filtros Inteligentes -->
+    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; background: #f8fafd; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border);">
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Ano:</label>
+        <select id="filtro-ano" onchange="filtrarPedidos()" style="padding: 4px 6px; font-size: 11.5px; border-radius: 4px; border: 1px solid var(--border);">
+          <option value="">Todos</option>
+        </select>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Mês:</label>
+        <select id="filtro-mes" onchange="filtrarPedidos()" style="padding: 4px 6px; font-size: 11.5px; border-radius: 4px; border: 1px solid var(--border);">
+          <option value="">Todos</option>
+        </select>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 4px;">
+        <label style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">Educador:</label>
+        <select id="filtro-educador" onchange="filtrarPedidos()" style="padding: 4px 6px; font-size: 11.5px; border-radius: 4px; border: 1px solid var(--border); max-width: 140px;">
+          <option value="">Todos</option>
+        </select>
+      </div>
+
+      <div style="flex: 1; min-width: 150px;">
+        <input type="text" id="filtro-historico" placeholder="Buscar por título, aluno ou nº..." oninput="filtrarPedidos()" style="width: 100%; font-size: 11.5px; padding: 4px 6px;">
+      </div>
+    </div>
+
+    <!-- Tabela de Pedidos Arquivados -->
+    <div class="table-container" style="max-height: 320px;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 70px; text-align: center;">Nº Ordem</th>
+            <th style="width: 110px; text-align: center;">Mês / Data</th>
+            <th>Título do Pedido & Educadores</th>
+            <th style="width: 80px; text-align: center;">Materiais</th>
+            <th style="width: 210px; text-align: center;">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="lista-historico-body">
+          <tr>
+            <td colspan="5" style="text-align: center; color: var(--text-secondary);">Carregando histórico...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="google.script.host.close()">Fechar</button>
+    </div>
+
+    <div class="loading-overlay" id="loading">
+      <div class="spinner"></div>
+      <div id="loading-text" style="font-weight: 600; color: var(--primary);">Carregando pedidos...</div>
+    </div>
+  </div>
+
+  <script>
+    let pedidosGlobal = [];
+
+    window.onload = function () {
+      carregarHistorico();
+    };
+
+    function carregarHistorico() {
+      google.script.run
+        .withSuccessHandler((pedidos) => {
+          pedidosGlobal = pedidos || [];
+          popularFiltros(pedidosGlobal);
+          renderizarHistorico(pedidosGlobal);
+        })
+        .withFailureHandler(tratarErro)
+        .listarPedidosArquivados();
+    }
+
+    function popularFiltros(pedidos) {
+      const selectAno = document.getElementById('filtro-ano');
+      const selectMes = document.getElementById('filtro-mes');
+      const selectEduc = document.getElementById('filtro-educador');
+
+      const anosSet = new Set();
+      const mesesSet = new Set();
+      const educadoresSet = new Set();
+
+      (pedidos || []).forEach(p => {
+        if (p.ano) anosSet.add(p.ano);
+        if (p.mesNome) mesesSet.add(p.mesNome);
+        if (Array.isArray(p.educadores)) {
+          p.educadores.forEach(e => {
+            if (e && e !== '-' && e.toLowerCase() !== 'nenhum') educadoresSet.add(e);
+          });
+        }
+      });
+
+      if (selectAno) {
+        selectAno.innerHTML = '<option value="">Todos</option>';
+        Array.from(anosSet).sort().reverse().forEach(ano => {
+          const opt = document.createElement('option');
+          opt.value = ano;
+          opt.textContent = ano;
+          selectAno.appendChild(opt);
+        });
+      }
+
+      if (selectMes) {
+        selectMes.innerHTML = '<option value="">Todos</option>';
+        const ordemMeses = [
+          'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+        ];
+        ordemMeses.forEach(mes => {
+          if (mesesSet.has(mes)) {
+            const opt = document.createElement('option');
+            opt.value = mes;
+            opt.textContent = mes;
+            selectMes.appendChild(opt);
+          }
+        });
+      }
+
+      if (selectEduc) {
+        selectEduc.innerHTML = '<option value="">Todos</option>';
+        Array.from(educadoresSet).sort().forEach(educ => {
+          const opt = document.createElement('option');
+          opt.value = educ;
+          opt.textContent = educ;
+          selectEduc.appendChild(opt);
+        });
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function renderizarHistorico(pedidos) {
+      const tbody = document.getElementById('lista-historico-body');
+      tbody.innerHTML = '';
+
+      if (!pedidos || pedidos.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 18px; color: var(--text-secondary);">Nenhum pedido encontrado.</td></tr>';
+        return;
+      }
+
+      pedidos.forEach(p => {
+        const tr = document.createElement('tr');
+        const safeTitulo = escapeHtml(p.titulo || 'Pedido');
+        const safeData = escapeHtml(p.data || '');
+        const safeMesAno = escapeHtml(p.mesAno || '');
+        const safeOrdem = escapeHtml(p.numOrdem || '#---');
+        const safeEducadores = escapeHtml(p.educadoresStr || 'Não informado');
+        const safeId = String(p.idPedido || '').replace(/['"\\]/g, '');
+        const escapedTitulo = String(p.titulo || 'Pedido').replace(/['"\\]/g, '');
+
+        tr.innerHTML = `
+          <td style="text-align: center;">
+            <span class="badge badge-primary" style="font-size: 10.5px; font-weight: 700;">${safeOrdem}</span>
+          </td>
+          <td style="text-align: center;">
+            <div style="font-weight: 600; font-size: 11px; color: var(--text-primary);">${safeMesAno}</div>
+            <div style="font-size: 9.5px; color: var(--text-secondary);">${safeData}</div>
+          </td>
+          <td>
+            <div style="font-weight: 600; font-size: 11.5px; color: var(--text-primary);">${safeTitulo}</div>
+            <div style="font-size: 10.5px; color: var(--text-secondary); margin-top: 1px;">👨‍🏫 ${safeEducadores}</div>
+          </td>
+          <td style="text-align: center;"><span class="badge badge-success">${p.totalAlunos || 0}</span></td>
+          <td style="text-align: center;">
+            <div style="display: inline-flex; gap: 4px; justify-content: center; flex-wrap: wrap;">
+              <button class="btn btn-secondary" style="padding: 3px 6px; font-size: 10.5px;" onclick="alterarDataPedidoDialog('${safeId}', '${safeData}', '${escapedTitulo}')" title="Alterar data e ano do pedido">📅 Data</button>
+              <button class="btn btn-secondary" style="padding: 3px 6px; font-size: 10.5px;" onclick="editarPedidoSheets('${safeId}', '${escapedTitulo}')" title="Abrir planilha para editar">Editar</button>
+              <button class="btn btn-primary" style="padding: 3px 6px; font-size: 10.5px;" onclick="restaurarPedido('${safeId}', '${escapedTitulo}')">Restaurar</button>
+              <button class="btn btn-danger" style="padding: 3px 6px; font-size: 10.5px;" onclick="apagarPedido('${safeId}', '${escapedTitulo}')">Apagar</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function showToast(msg, tipo) {
+      tipo = tipo || 'sucesso';
+      let container = document.getElementById('toast-container');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+      }
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${tipo}`;
+      toast.innerHTML = msg;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function alterarDataPedidoDialog(idPedido, dataAtual, tituloAtual) {
+      const novaData = prompt(
+        `Alterar Data e Competência:\n\nPedido: "${tituloAtual}"\n\nInforme a nova data (ex: 15/08/2026 14:00 ou 15/08/2026):\n\n💡 Permite registrar ou corrigir pedidos de meses anteriores.`,
+        dataAtual || ''
+      );
+      if (!novaData || !novaData.trim()) return;
+
+      const ped = (pedidosGlobal || []).find(p => p.idPedido === idPedido);
+      if (ped) {
+        ped.data = novaData.trim();
+        const m = novaData.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (m) {
+          const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+          const idx = parseInt(m[2], 10) - 1;
+          ped.ano = m[3];
+          ped.mesNum = m[2];
+          ped.mesNome = meses[idx] || '';
+          ped.mesAno = `${ped.mesNome} / ${ped.ano}`;
+        }
+        filtrarPedidos();
+      }
+
+      showToast('Data do pedido atualizada com sucesso!', 'sucesso');
+
+      google.script.run
+        .withSuccessHandler(() => {
+          carregarHistorico();
+        })
+        .withFailureHandler(tratarErro)
+        .atualizarDataCompetenciaPedido(idPedido, novaData.trim(), tituloAtual);
+    }
+
+    function filtrarPedidos() {
+      const ano = document.getElementById('filtro-ano').value;
+      const mes = document.getElementById('filtro-mes').value;
+      const educ = document.getElementById('filtro-educador').value;
+      const termo = document.getElementById('filtro-historico').value.toLowerCase().trim();
+
+      const filtrados = pedidosGlobal.filter(p => {
+        if (ano && p.ano !== ano) return false;
+        if (mes && p.mesNome !== mes && p.mesNum !== mes) return false;
+        if (educ) {
+          const temEduc = Array.isArray(p.educadores) && p.educadores.some(e => (e || '').toLowerCase() === educ.toLowerCase());
+          if (!temEduc) return false;
+        }
+        if (termo) {
+          const matchTitulo = (p.titulo || '').toLowerCase().includes(termo);
+          const matchOrdem = (p.numOrdem || '').toLowerCase().includes(termo);
+          const matchData = (p.data || '').toLowerCase().includes(termo);
+          const matchEduc = (p.educadoresStr || '').toLowerCase().includes(termo);
+          if (!matchTitulo && !matchOrdem && !matchData && !matchEduc) return false;
+        }
+        return true;
+      });
+
+      renderizarHistorico(filtrados);
+    }
+
+    function restaurarPedido(idPedido, titulo) {
+      if (confirm(`Deseja restaurar o pedido "${titulo}" em uma nova aba para conferência?`)) {
+        showLoading('Restaurando pedido na planilha...');
+        google.script.run
+          .withSuccessHandler((res) => {
+            hideLoading();
+            alert(`Pedido "${titulo}" restaurado na aba "${res.nomeAba}".`);
+            google.script.host.close();
+          })
+          .withFailureHandler(tratarErro)
+          .restaurarPedidoEmNovaAba(idPedido);
+      }
+    }
+
+    function editarPedidoSheets(idPedido, titulo) {
+      if (confirm(`Deseja abrir o pedido "${titulo}" para edição na planilha do Google Sheets?\n\nVocê poderá corrigir nomes de alunos, matérias ou educadores diretamente nas células. Depois, utilize o menu "Gestão de Apostilas > Salvar Edição no Histórico" para salvar.`)) {
+        showLoading('Carregando pedido na folha...');
+        google.script.run
+          .withSuccessHandler((res) => {
+            hideLoading();
+            google.script.host.close();
+          })
+          .withFailureHandler(tratarErro)
+          .abrirPedidoParaEdicao(idPedido);
+      }
+    }
+
+    function apagarPedido(idPedido, titulo) {
+      if (confirm(`Deseja realmente apagar o pedido "${titulo}" do histórico consolidado?`)) {
+        // Remove imediatamente da lista local na tela
+        pedidosGlobal = (pedidosGlobal || []).filter(p => p.idPedido !== idPedido);
+        filtrarPedidos();
+        showToast(`Pedido "${titulo}" excluído!`, 'sucesso');
+
+        google.script.run
+          .withSuccessHandler(() => {
+            carregarHistorico();
+          })
+          .withFailureHandler(tratarErro)
+          .apagarPedidoHistorico(idPedido);
+      }
+    }
+
+    function showLoading(msg) {
+      document.getElementById('loading-text').innerText = msg;
+      document.getElementById('loading').style.display = 'flex';
+    }
+
+    function hideLoading() {
+      document.getElementById('loading').style.display = 'none';
+    }
+
+    function tratarErro(err) {
+      hideLoading();
+      alert('Erro: ' + err.message);
+    }
+
+    // Fecha o modal ao pressionar ESC
+    window.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        try {
+          google.script.host.close();
+        } catch (eClose) {}
+      }
+    });
+  </script>
+</body>
+
+</html>

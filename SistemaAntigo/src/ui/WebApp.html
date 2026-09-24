@@ -1,0 +1,1514 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('ui/Styles'); ?>
+  <!-- SheetJS para leitura local ultra-rápida de arquivos Excel (.xls e .xlsx) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+  <!-- Cabeçalho Institucional Microlins Potirendaba -->
+  <header class="app-header">
+    <div class="app-brand">
+      <div class="brand-logo-box">MICROLINS</div>
+      <div class="app-title">
+        <h1>Gestão de Apostilas e Materiais Didáticos</h1>
+        <p class="brand-subtitle">Potirendaba</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-header" onclick="exportarPDF()" title="Exportar folha atual para PDF A4">
+        <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+        <span>PDF</span>
+      </button>
+      <button class="btn-header" onclick="exportarExcel()" title="Exportar folha atual para Excel (.xlsx)">
+        <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M8 13h8"></path><path d="M8 17h8"></path><path d="M10 9h1"></path></svg>
+        <span>Excel</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Navegação Superior com Ícones Vetoriais SVG -->
+  <nav class="app-nav">
+    <button class="tab-btn active" onclick="switchNav('central', this)">
+      <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+      <span>Central de Novo Pedido</span>
+    </button>
+    <button class="tab-btn" onclick="switchNav('folha', this)">
+      <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+      <span>Folha Atual no Sheets</span>
+    </button>
+    <button class="tab-btn" onclick="switchNav('duplicidades', this)">
+      <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+      <span>Duplicidades</span>
+      <span id="badge-dup-nav" class="badge badge-danger" style="display: none; padding: 1px 6px; font-size: 10px;">0</span>
+    </button>
+    <button class="tab-btn" onclick="switchNav('historico', this)">
+      <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+      <span>Histórico de Pedidos</span>
+    </button>
+    <button class="tab-btn" onclick="switchNav('educadores', this)">
+      <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+      <span>Configurar Educadores</span>
+    </button>
+  </nav>
+
+  <!-- Conteúdo Principal -->
+  <main class="main-content">
+
+    <!-- SEÇÃO 1: CENTRAL DE NOVO PEDIDO -->
+    <section id="sec-central">
+      
+      <!-- ETAPA 1: TÍTULO DO PEDIDO -->
+      <div class="step-card">
+        <div class="step-header">
+          <div class="step-num">1</div>
+          <div>
+            <h3 class="step-title">Identificação do Pedido</h3>
+            <p class="step-desc">Insira o título exatamente como deve constar no cabeçalho impresso oficial:</p>
+          </div>
+        </div>
+        <div style="max-width: 580px;">
+          <input type="text" id="input-titulo-pedido" placeholder="Ex: ENTREGA DE MATERIAL - 1º PEDIDO SETEMBRO">
+        </div>
+      </div>
+
+      <!-- ETAPA 2: UPLOAD DA PLANILHA -->
+      <div class="step-card">
+        <div class="step-header">
+          <div class="step-num">2</div>
+          <div>
+            <h3 class="step-title">Carregar Relatório do Sistema de Gestão</h3>
+            <p class="step-desc">Selecione ou arraste a planilha exportada (.xls ou .xlsx). Filtros de contrato, exclusão de educadores e digitação são aplicados automaticamente:</p>
+          </div>
+        </div>
+
+        <div class="drop-zone" id="drop-zone-web" onclick="document.getElementById('file-input-web').click()">
+          <div class="drop-zone-icon">
+            <svg class="icon icon-xl" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          </div>
+          <div class="drop-zone-text">Arraste a planilha (.xls ou .xlsx) ou clique para selecionar</div>
+          <div class="drop-zone-sub">Higienização de matérias e critérios de negócio validados instantaneamente</div>
+          <input type="file" id="file-input-web" accept=".xls,.xlsx,.csv" style="display: none;" onchange="handleFileWeb(event)">
+        </div>
+      </div>
+
+      <!-- ETAPA 3: INSPEÇÃO E TRATAMENTO MANUAL DO OPERADOR (Foco 100% na Tabela e Filtros) -->
+      <div class="step-card" id="card-inspecao" style="display: none;">
+        <div class="step-header">
+          <div class="step-num">3</div>
+          <div>
+            <h3 class="step-title">Inspeção e Tratamento de Materiais</h3>
+            <p class="step-desc">Ajuste o intervalo de aulas livremente, alterne a ordenação ou exclua itens antes de gerar a folha:</p>
+          </div>
+        </div>
+
+        <!-- Barra de Filtros, Faixa Livre de Aulas e Ordenação -->
+        <div class="filters-bar">
+          
+          <!-- Filtro Livre de Aulas (Livre escolha de/para) -->
+          <div class="filter-group">
+            <span class="filter-label">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+              Filtrar Aulas:
+            </span>
+            <div class="aula-inputs">
+              <input type="number" id="filtro-aula-min" class="aula-input" value="4" min="0" max="99" title="Aula inicial (mínima)" oninput="aplicarFiltrosEOrdenacao()">
+              <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 500;">até</span>
+              <input type="number" id="filtro-aula-max" class="aula-input" value="6" min="0" max="99" title="Aula final (máxima)" oninput="aplicarFiltrosEOrdenacao()">
+            </div>
+            <button type="button" class="btn-pill active" id="btn-filtro-padrao" onclick="definirFaixaAula(4, 6, this)">4 a 6 (Padrão)</button>
+            <button type="button" class="btn-pill" id="btn-filtro-todas" onclick="definirFaixaAula(null, null, this)">Todas as Aulas</button>
+          </div>
+
+          <!-- Filtro de Ordenação (Maior pro menor etc.) -->
+          <div class="filter-group">
+            <span class="filter-label">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="21" y1="6" x2="3" y2="6"></line><line x1="17" y1="12" x2="7" y2="12"></line><line x1="13" y1="18" x2="11" y2="18"></line></svg>
+              Ordenar por:
+            </span>
+            <select id="select-ordenacao" class="select-sort" onchange="aplicarFiltrosEOrdenacao()">
+              <option value="aula-desc">Aula: Maior → Menor</option>
+              <option value="aula-asc">Aula: Menor → Maior</option>
+              <option value="aluno-asc">Aluno: A → Z</option>
+              <option value="aluno-desc">Aluno: Z → A</option>
+              <option value="materia-asc">Matéria: A → Z</option>
+              <option value="materia-desc">Matéria: Z → A</option>
+            </select>
+          </div>
+
+          <!-- Busca Rápida por Texto -->
+          <div class="search-wrapper">
+            <svg class="icon icon-sm search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="filtro-inspecao" class="search-input" placeholder="Buscar aluno, matéria ou curso..." oninput="aplicarFiltrosEOrdenacao()">
+          </div>
+
+          <!-- Contador de Itens Visíveis -->
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary);" id="label-itens-visiveis">
+            Exibindo 0 registros
+          </div>
+
+        </div>
+
+        <!-- Tabela de Inspeção do Operador com Cabeçalhos Clicáveis -->
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 45px; text-align: center;">#</th>
+                <th class="sortable" style="width: 28%;" onclick="toggleSortHeader('aluno')">
+                  <span class="th-content">
+                    Aluno <span id="sort-icon-aluno"><svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="7 15 12 20 17 15"></polyline><polyline points="7 9 12 4 17 9"></polyline></svg></span>
+                  </span>
+                </th>
+                <th class="sortable" style="width: 26%;" onclick="toggleSortHeader('materia')">
+                  <span class="th-content">
+                    Matéria <span id="sort-icon-materia"><svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="7 15 12 20 17 15"></polyline><polyline points="7 9 12 4 17 9"></polyline></svg></span>
+                  </span>
+                </th>
+                <th style="width: 22%;">Formação / Curso</th>
+                <th class="sortable" style="width: 10%; text-align: center;" onclick="toggleSortHeader('aula')">
+                  <span class="th-content" style="justify-content: center;">
+                    Aula <span id="sort-icon-aula"><svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="7 15 12 20 17 15"></polyline><polyline points="7 9 12 4 17 9"></polyline></svg></span>
+                  </span>
+                </th>
+                <th style="width: 14%; text-align: center;">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-inspecao-corpo"></tbody>
+          </table>
+        </div>
+
+        <!-- BANNER DE FINALIZAÇÃO (Gravação no Google Sheets) -->
+        <div class="banner-finalizar">
+          <div>
+            <div style="font-size: 15.5px; font-weight: 700;">Pronto para gerar a folha oficial?</div>
+            <div style="font-size: 12px; opacity: 0.9;" id="txt-resumo-finalizar">0 materiais conferidos e validados</div>
+          </div>
+          <button class="btn btn-danger" style="background: var(--accent-red); padding: 9px 20px; font-size: 13.5px; font-weight: 700; box-shadow: 0 2px 8px rgba(217, 26, 42, 0.4);" onclick="finalizarEGravarSheets()">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Gerar Planilha no Sheets</span>
+          </button>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- SEÇÃO 2: FOLHA ATUAL NO SHEETS -->
+    <section id="sec-folha" style="display: none;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <h2 id="view-titulo-pedido" style="font-size: 17px; font-weight: 700; color: var(--primary);">Carregando folha...</h2>
+            <button class="btn btn-secondary btn-sm" onclick="promptRenomearFolha()" title="Editar título do pedido na planilha">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+              <span>Renomear</span>
+            </button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px; flex-wrap: wrap;">
+            <span style="font-size: 12px; color: var(--text-muted);" id="view-total-alunos">0 registros na lista</span>
+            <span id="sep-aba-folha" style="display: none; font-size: 12px; color: #cbd5e1;">•</span>
+            <div id="container-seletor-aba" style="display: none; align-items: center; gap: 6px;">
+              <label for="select-aba-folha" style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Folha:</label>
+              <select id="select-aba-folha" onchange="trocarAbaFolha(this.value)" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff; color: var(--text-main); font-weight: 600; cursor: pointer; height: 26px;">
+              </select>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" onclick="atualizarFolhaAtual()">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            <span>Atualizar</span>
+          </button>
+          <button class="btn btn-primary" onclick="arquivarPedido()">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>
+            <span>Arquivar no Histórico</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="card" style="padding: 0; overflow: hidden;">
+        <div class="table-container" style="max-height: 520px; border: none;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 50px;">Linha</th>
+                <th style="width: 28%;">Aluno</th>
+                <th style="width: 25%;">Matéria</th>
+                <th style="width: 17%;">Educador</th>
+                <th style="width: 10%; text-align: center;">Data</th>
+                <th style="width: 10%; text-align: center;">Entrega</th>
+                <th style="width: 10%; text-align: center;">Aula Atual</th>
+              </tr>
+            </thead>
+            <tbody id="view-tabela-folha">
+              <tr><td colspan="7" style="text-align: center; padding: 28px; color: var(--text-muted);">Carregando dados da folha...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEÇÃO 3: DUPLICIDADES -->
+    <section id="sec-duplicidades" style="display: none;">
+      <div class="card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <h3 style="color: var(--primary); font-size: 15px; font-weight: 700;">Conferência de Duplicidades</h3>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">Registros que coincidem com itens solicitados no mesmo pedido ou em pedidos arquivados:</p>
+          </div>
+          <button class="btn btn-danger" id="btn-del-dup" onclick="removerDuplicadosWeb()" style="display: none;">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            <span>Remover Selecionados da Folha</span>
+          </button>
+        </div>
+
+        <div class="table-container" style="max-height: 420px;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 35px; text-align: center;"><input type="checkbox" id="check-all-web" checked onchange="toggleSelectAllWeb(this)"></th>
+                <th style="width: 55px;">Linha</th>
+                <th>Aluno</th>
+                <th>Matéria</th>
+                <th>Origem da Duplicidade</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-web-duplicidades">
+              <tr><td colspan="5" style="text-align: center; padding: 24px; color: var(--text-muted);">Nenhuma duplicidade identificada.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEÇÃO 4: HISTÓRICO DE PEDIDOS -->
+    <section id="sec-historico" style="display: none;">
+      <div class="card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <h3 style="color: var(--primary); font-size: 15px; font-weight: 700;">Histórico de Pedidos Arquivados</h3>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">Consulte pedidos anteriores, filtre por período/educador ou edite alunos e matérias:</p>
+          </div>
+          <button class="btn btn-secondary" onclick="atualizarHistorico()">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            <span>Atualizar</span>
+          </button>
+        </div>
+
+        <!-- Barra de Filtros Avançados: Ano, Mês, Educador e Busca Livre -->
+        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; background: #f8fafd; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border);">
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <label style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary);">Ano:</label>
+            <select id="filtro-ano-hist" onchange="filtrarHistoricoWeb()" style="padding: 4px 8px; font-size: 12px; border-radius: 4px; border: 1px solid var(--border);">
+              <option value="">Todos</option>
+            </select>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <label style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary);">Mês:</label>
+            <select id="filtro-mes-hist" onchange="filtrarHistoricoWeb()" style="padding: 4px 8px; font-size: 12px; border-radius: 4px; border: 1px solid var(--border);">
+              <option value="">Todos</option>
+            </select>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <label style="font-size: 11.5px; font-weight: 600; color: var(--text-secondary);">Educador:</label>
+            <select id="filtro-educ-hist" onchange="filtrarHistoricoWeb()" style="padding: 4px 8px; font-size: 12px; border-radius: 4px; border: 1px solid var(--border); max-width: 170px;">
+              <option value="">Todos</option>
+            </select>
+          </div>
+
+          <div style="flex: 1; min-width: 180px;">
+            <input type="text" id="filtro-hist-web" placeholder="Buscar por título, aluno ou nº..." oninput="filtrarHistoricoWeb()" style="width: 100%; font-size: 12px; padding: 4px 8px;">
+          </div>
+        </div>
+
+        <div class="table-container" style="max-height: 420px;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 75px; text-align: center;">Nº Ordem</th>
+                <th style="width: 120px; text-align: center;">Mês / Data</th>
+                <th>Título do Pedido & Educadores</th>
+                <th style="width: 95px; text-align: center;">Materiais</th>
+                <th style="width: 250px; text-align: center;">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-web-historico">
+              <tr><td colspan="5" style="text-align: center; padding: 24px; color: var(--text-muted);">Carregando histórico...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEÇÃO 5: CONFIGURAÇÃO DE EDUCADORES -->
+    <section id="sec-educadores" style="display: none;">
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px;">
+          <div>
+            <h3 style="color: var(--primary); font-size: 15px; font-weight: 700;">Educadores e Nomes Desconsiderados</h3>
+            <p style="color: var(--text-muted); font-size: 12px; margin-top: 2px;">
+              Nomes cadastrados nesta lista são ignorados automaticamente caso constem no relatório do sistema:
+            </p>
+          </div>
+          <button class="btn btn-secondary" onclick="atualizarEducadores()">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            <span>Atualizar</span>
+          </button>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 16px; max-width: 520px;">
+          <input type="text" id="input-novo-educador" placeholder="Nome completo do educador a desconsiderar..." onkeypress="if(event.key==='Enter') adicionarEducadorWeb()">
+          <button class="btn btn-primary" onclick="adicionarEducadorWeb()">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>Cadastrar</span>
+          </button>
+        </div>
+
+        <div class="table-container" style="max-height: 380px; max-width: 650px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome do Educador</th>
+                <th style="width: 100px; text-align: center;">Ação</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-web-educadores">
+              <tr><td colspan="2" style="text-align: center; padding: 20px; color: var(--text-muted);">Carregando educadores...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Overlay de Carregamento -->
+  <div class="loading-overlay" id="loading-web">
+    <div class="spinner"></div>
+    <div id="loading-web-text" style="font-weight: 600; color: #ffffff; font-size: 13.5px;">Processando dados...</div>
+  </div>
+
+  <!-- Modal Interno com SVGs de Status -->
+  <div class="app-modal-overlay" id="app-modal-overlay">
+    <div class="app-modal-box">
+      <div class="app-modal-header-icon" id="modal-icon-container">
+        <!-- SVG dinâmico injetado via showModal -->
+      </div>
+      <div class="app-modal-title" id="modal-title">Aviso</div>
+      <div class="app-modal-msg" id="modal-msg"></div>
+      <div class="app-modal-actions" id="modal-actions"></div>
+    </div>
+  </div>
+
+  <script>
+    /* Estado global e lazy loading */
+    let _folhaCarregada = false;
+    let _historicoCarregado = false;
+    let _educadoresCarregado = false;
+    let _nomeAbaAtualFolha = '';
+
+    let todosRegistrosImportados = []; // Todos os registros elegíveis importados da planilha
+    let listaTrabalho = [];            // Registros atualmente exibidos pós filtros e ordenação
+    let itensExcluidosSet = new Set(); // IDs de itens que o operador excluiu manualmente
+    let cacheHistorico = [];
+
+    // Estado da ordenação ativa
+    let ordenacaoAtual = {
+      campo: 'aula', // 'aula', 'aluno', 'materia'
+      direcao: 'desc' // 'asc', 'desc'
+    };
+
+    /* =============================================
+       MODAL INTERNO COM ÍCONES VETORIAIS SVG
+       ============================================= */
+    function showModal(titulo, mensagem, opts) {
+      opts = opts || {};
+      const tipo = opts.tipo || 'info';
+      const containerIcone = document.getElementById('modal-icon-container');
+      containerIcone.className = 'app-modal-header-icon ' + tipo;
+
+      const svgIcons = {
+        sucesso: '<svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>',
+        erro: '<svg class="icon icon-lg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>',
+        aviso: '<svg class="icon icon-lg" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
+        info: '<svg class="icon icon-lg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>',
+        pergunta: '<svg class="icon icon-lg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
+      };
+
+      containerIcone.innerHTML = svgIcons[tipo] || svgIcons.info;
+      document.getElementById('modal-title').innerText = titulo;
+      document.getElementById('modal-msg').innerHTML = mensagem;
+
+      const actions = document.getElementById('modal-actions');
+      actions.innerHTML = '';
+
+      if (opts.onConfirm) {
+        const btnConfirmar = document.createElement('button');
+        btnConfirmar.className = (tipo === 'erro' || tipo === 'aviso') ? 'btn btn-danger' : 'btn btn-primary';
+        btnConfirmar.innerText = opts.labelConfirmar || 'Confirmar';
+        btnConfirmar.onclick = function() { closeModal(); opts.onConfirm(); };
+        actions.appendChild(btnConfirmar);
+
+        const btnCancelar = document.createElement('button');
+        btnCancelar.className = 'btn btn-secondary';
+        btnCancelar.innerText = opts.labelCancelar || 'Cancelar';
+        btnCancelar.onclick = closeModal;
+        actions.appendChild(btnCancelar);
+      } else {
+        const btnOk = document.createElement('button');
+        btnOk.className = 'btn btn-primary';
+        btnOk.innerText = 'OK';
+        btnOk.onclick = closeModal;
+        actions.appendChild(btnOk);
+      }
+
+      document.getElementById('app-modal-overlay').classList.add('active');
+    }
+
+    function closeModal() {
+      document.getElementById('app-modal-overlay').classList.remove('active');
+    }
+
+    // Fecha modais com a tecla ESC
+    window.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeModal();
+      }
+    });
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function showModalPrompt(titulo, label, valorInicial, onConfirmCallback) {
+      const inputId = 'modal-prompt-input-' + Date.now();
+      const htmlContent = `
+        <div style="margin-bottom: 10px; font-size: 13px; color: var(--text-muted);">${escapeHtml(label)}</div>
+        <input type="text" id="${inputId}" value="${escapeHtml(valorInicial)}" style="width: 100%; box-sizing: border-box; padding: 9px 12px; font-size: 13.5px; font-weight: 600; border: 1.5px solid var(--primary); border-radius: 8px; outline: none; background: #ffffff; color: var(--text-primary);">
+      `;
+      showModal(titulo, htmlContent, {
+        tipo: 'info',
+        labelConfirmar: 'Salvar',
+        labelCancelar: 'Cancelar',
+        onConfirm: function() {
+          const inputEl = document.getElementById(inputId);
+          const val = inputEl ? inputEl.value.trim() : '';
+          if (val && typeof onConfirmCallback === 'function') {
+            onConfirmCallback(val);
+          }
+        }
+      });
+      setTimeout(() => {
+        const el = document.getElementById(inputId);
+        if (el) { el.focus(); el.select(); }
+      }, 100);
+    }
+
+    function showToast(msg, tipo) {
+      tipo = tipo || 'sucesso';
+      let container = document.getElementById('toast-container');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+      }
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${tipo}`;
+      toast.innerHTML = msg;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+      }, 3200);
+    }
+
+    /* =============================================
+       NAVEGAÇÃO POR ABAS
+       ============================================= */
+    function switchNav(sec, btnEl) {
+      document.querySelectorAll('.app-nav .tab-btn').forEach(b => b.classList.remove('active'));
+      if (btnEl) btnEl.classList.add('active');
+
+      ['central', 'folha', 'duplicidades', 'historico', 'educadores'].forEach(s => {
+        const el = document.getElementById('sec-' + s);
+        if (el) el.style.display = (s === sec) ? 'block' : 'none';
+      });
+
+      if (sec === 'folha') carregarFolhaAtual();
+      if (sec === 'historico') carregarHistoricoWeb();
+      if (sec === 'educadores' && !_educadoresCarregado) carregarEducadoresWeb();
+    }
+
+    /* =============================================
+       UPLOAD E LEITURA DE PLANILHA (.xls / .xlsx)
+       ============================================= */
+    function handleFileWeb(e) {
+      if (e.target.files.length > 0) {
+        const file = e.target.files[0];
+        showLoading('Lendo planilha e higienizando dados...');
+        const reader = new FileReader();
+
+        reader.onload = function(evt) {
+          try {
+            const data = new Uint8Array(evt.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheet = workbook.SheetNames[0];
+            const rows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { header: 1, defval: '' });
+
+            // Envia para o backend solicitando todas as aulas elegíveis (filtro dinâmico na tela)
+            google.script.run
+              .withSuccessHandler(exibirPreviewInspecao)
+              .withFailureHandler(tratarErro)
+              .processarDadosImportados(rows, { todasAulas: true });
+
+          } catch (err) {
+            hideLoading();
+            showModal('Erro na Leitura', 'Não foi possível ler a planilha: ' + err.message, { tipo: 'erro' });
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    }
+
+    function exibirPreviewInspecao(res) {
+      hideLoading();
+      itensExcluidosSet.clear();
+
+      todosRegistrosImportados = (res.registros || []).map((r, i) => ({
+        idTemp: i + 1,
+        aluno: r.aluno,
+        materia: r.materiaLimpa || r.materiaBruta,
+        formacao: r.formacao || '',
+        aulaAtual: parseFloat(r.aulaAtual) || 0,
+        educador: '',
+        dataInicio: r.dataInicio || '',
+        diasAgendamento: r.diasAgendamento || '',
+        horasAgendamento: r.horasAgendamento || '',
+        proximaMateria: r.proximaMateria || '',
+        telefone: r.telefone || '',
+        totalAulas: r.totalAulas || 0
+      }));
+
+      // Inicializa faixa padrão (4 a 6)
+      document.getElementById('filtro-aula-min').value = 4;
+      document.getElementById('filtro-aula-max').value = 6;
+      document.getElementById('select-ordenacao').value = 'aula-desc';
+      ordenacaoAtual = { campo: 'aula', direcao: 'desc' };
+
+      aplicarFiltrosEOrdenacao();
+      document.getElementById('card-inspecao').style.display = 'block';
+      document.getElementById('card-inspecao').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    /* =============================================
+       FILTROS DE AULA, BUSCA E ORDENAÇÃO DINÂMICA
+       ============================================= */
+    function definirFaixaAula(min, max, btnEl) {
+      document.querySelectorAll('.filters-bar .btn-pill').forEach(b => b.classList.remove('active'));
+      if (btnEl) btnEl.classList.add('active');
+
+      document.getElementById('filtro-aula-min').value = (min !== null) ? min : '';
+      document.getElementById('filtro-aula-max').value = (max !== null) ? max : '';
+      aplicarFiltrosEOrdenacao();
+    }
+
+    function aplicarFiltrosEOrdenacao() {
+      const termo = (document.getElementById('filtro-inspecao').value || '').trim().toLowerCase();
+      const minValStr = document.getElementById('filtro-aula-min').value;
+      const maxValStr = document.getElementById('filtro-aula-max').value;
+
+      const aulaMin = minValStr !== '' ? parseFloat(minValStr) : null;
+      const aulaMax = maxValStr !== '' ? parseFloat(maxValStr) : null;
+
+      // 1. Filtra registros válidos e não excluídos manualmente
+      let filtrados = todosRegistrosImportados.filter(item => {
+        if (itensExcluidosSet.has(item.idTemp)) return false;
+
+        // Filtro de Aula livre
+        if (aulaMin !== null && item.aulaAtual < aulaMin) return false;
+        if (aulaMax !== null && item.aulaAtual > aulaMax) return false;
+
+        // Filtro de busca textual
+        if (termo) {
+          const matchAluno = item.aluno.toLowerCase().includes(termo);
+          const matchMateria = item.materia.toLowerCase().includes(termo);
+          const matchFormacao = item.formacao.toLowerCase().includes(termo);
+          if (!matchAluno && !matchMateria && !matchFormacao) return false;
+        }
+
+        return true;
+      });
+
+      // 2. Ordenação
+      const selectSort = document.getElementById('select-ordenacao').value;
+      let [sortCampo, sortDir] = selectSort.split('-');
+      ordenacaoAtual.campo = sortCampo;
+      ordenacaoAtual.direcao = sortDir;
+
+      filtrados.sort((a, b) => {
+        let valA, valB;
+        if (sortCampo === 'aula') {
+          valA = a.aulaAtual;
+          valB = b.aulaAtual;
+          return sortDir === 'asc' ? valA - valB : valB - valA;
+        } else if (sortCampo === 'aluno') {
+          valA = a.aluno.toLowerCase();
+          valB = b.aluno.toLowerCase();
+          return sortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        } else if (sortCampo === 'materia') {
+          valA = a.materia.toLowerCase();
+          valB = b.materia.toLowerCase();
+          return sortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return 0;
+      });
+
+      listaTrabalho = filtrados;
+      atualizarIconesOrdenacaoHeaders();
+      renderizarTabelaInspecao(listaTrabalho);
+    }
+
+    function toggleSortHeader(campo) {
+      if (ordenacaoAtual.campo === campo) {
+        ordenacaoAtual.direcao = (ordenacaoAtual.direcao === 'asc') ? 'desc' : 'asc';
+      } else {
+        ordenacaoAtual.campo = campo;
+        ordenacaoAtual.direcao = (campo === 'aula') ? 'desc' : 'asc';
+      }
+
+      const selectSort = document.getElementById('select-ordenacao');
+      selectSort.value = `${ordenacaoAtual.campo}-${ordenacaoAtual.direcao}`;
+      aplicarFiltrosEOrdenacao();
+    }
+
+    function atualizarIconesOrdenacaoHeaders() {
+      const svgAsc = '<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"></polyline></svg>';
+      const svgDesc = '<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+      const svgDefault = '<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="7 15 12 20 17 15"></polyline><polyline points="7 9 12 4 17 9"></polyline></svg>';
+
+      ['aluno', 'materia', 'aula'].forEach(c => {
+        const el = document.getElementById(`sort-icon-${c}`);
+        if (!el) return;
+        if (ordenacaoAtual.campo === c) {
+          el.innerHTML = ordenacaoAtual.direcao === 'asc' ? svgAsc : svgDesc;
+          el.style.color = 'var(--primary)';
+        } else {
+          el.innerHTML = svgDefault;
+          el.style.color = '#94a3b8';
+        }
+      });
+    }
+
+    /* =============================================
+       RENDERIZAÇÃO DA TABELA DE INSPEÇÃO
+       ============================================= */
+    function renderizarTabelaInspecao(lista) {
+      const tbody = document.getElementById('tabela-inspecao-corpo');
+      tbody.innerHTML = '';
+
+      // Contagem de multiplicidade por aluno
+      const contagemAlunos = {};
+      lista.forEach(item => {
+        const nomeNorm = item.aluno.trim().toLowerCase();
+        contagemAlunos[nomeNorm] = (contagemAlunos[nomeNorm] || 0) + 1;
+      });
+
+      const totalAtivos = todosRegistrosImportados.filter(i => !itensExcluidosSet.has(i.idTemp)).length;
+      document.getElementById('label-itens-visiveis').innerText = `Exibindo ${lista.length} de ${totalAtivos} materiais`;
+      document.getElementById('txt-resumo-finalizar').innerText = `${lista.length} materiais selecionados para a folha oficial`;
+
+      if (!lista || lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 28px; color: var(--text-muted);">Nenhum registro corresponde aos filtros selecionados.</td></tr>';
+        return;
+      }
+
+      lista.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        const nomeNorm = r.aluno.trim().toLowerCase();
+        const temMultiplasMaterias = contagemAlunos[nomeNorm] > 1;
+
+        if (temMultiplasMaterias) {
+          tr.style.backgroundColor = '#fffbeb';
+        }
+
+        const aulaVal = r.aulaAtual || 0;
+        let badgeClass = 'badge-aula';
+        if (aulaVal === 4) badgeClass = 'badge-aula-4';
+        else if (aulaVal === 5) badgeClass = 'badge-aula-5';
+        else if (aulaVal === 6) badgeClass = 'badge-aula-6';
+
+        const temAgendamento = r.diasAgendamento && r.diasAgendamento !== 'Indefinido';
+        const horaCurta = r.horasAgendamento ? r.horasAgendamento.split(',')[0] : '';
+        const agendamentoStr = temAgendamento ? `${r.diasAgendamento}${horaCurta ? ' (' + horaCurta + ')' : ''}` : '';
+
+        tr.innerHTML = `
+          <td style="text-align: center; font-size: 11px; color: var(--text-muted); font-weight: 500;">${idx + 1}</td>
+          <td>
+            <div style="font-weight: 600; color: var(--text-primary);">${r.aluno}</div>
+            ${temAgendamento ? `<div style="font-size: 11px; color: #475569; margin-top: 2px;"><span style="font-weight: 600;">📅 ${agendamentoStr}</span></div>` : ''}
+            ${temMultiplasMaterias ? `<span class="tag-multi"><svg class="icon" style="width:11px;height:11px;" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path></svg> Aluno com ${contagemAlunos[nomeNorm]} matérias</span>` : ''}
+          </td>
+          <td>
+            <b>${r.materia}</b>
+            ${r.proximaMateria ? `<div style="font-size: 11px; color: #059669; margin-top: 2px;" title="Próxima matéria cadastrada no plano pedagógico">⏭️ Próx: <b>${r.proximaMateria}</b></div>` : ''}
+          </td>
+          <td style="color: var(--text-muted); font-size: 11.5px;">${r.formacao || '—'}</td>
+          <td style="text-align: center;">
+            <span class="badge ${badgeClass}">${aulaVal ? aulaVal + 'ª Aula' : '—'}</span>
+          </td>
+          <td style="text-align: center;">
+            <button class="btn btn-danger-outline btn-sm" onclick="removerItemInspecao(${r.idTemp})" title="Remover este item do pedido">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <span>Excluir</span>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    /* Correção do Botão de Excluir: atualiza o estado sem referências nulas */
+    function removerItemInspecao(idTemp) {
+      itensExcluidosSet.add(idTemp);
+      aplicarFiltrosEOrdenacao();
+    }
+
+    /* =============================================
+       FINALIZAR E GRAVAR NO GOOGLE SHEETS
+       ============================================= */
+    function finalizarEGravarSheets() {
+      const tituloInput = document.getElementById('input-titulo-pedido');
+      const titulo = (tituloInput.value || '').trim();
+
+      if (!titulo) {
+        showModal('Título obrigatório', 'Por favor, informe o título da planilha antes de finalizar.', { tipo: 'aviso' });
+        tituloInput.focus();
+        return;
+      }
+
+      if (!listaTrabalho || listaTrabalho.length === 0) {
+        showModal('Nenhum item selecionado', 'A lista está vazia para os filtros atuais. Ajuste os filtros antes de gerar.', { tipo: 'aviso' });
+        return;
+      }
+
+      showLoading('Gerando e aplicando formatação com filtros no Sheets...');
+      google.script.run
+        .withSuccessHandler((res) => {
+          hideLoading();
+          _folhaCarregada = false;
+          showModal(
+            'Folha Oficial Gerada!',
+            `<b>${res.titulo}</b><br><br>${res.totalInseridos} materiais didáticos inseridos com sucesso.<br>Filtros automáticos aplicados aos rótulos da folha.`,
+            { tipo: 'sucesso' }
+          );
+          setTimeout(() => switchNav('folha'), 350);
+        })
+        .withFailureHandler(tratarErro)
+        .gerarFolhaFinalizada(titulo, listaTrabalho);
+    }
+
+    /* =============================================
+       FOLHA ATUAL NO SHEETS
+       ============================================= */
+    function carregarFolhaAtual(nomeAbaForcada) {
+      showLoading('Carregando dados da folha do Sheets...');
+      const abaAlvo = (nomeAbaForcada !== undefined) ? nomeAbaForcada : (_nomeAbaAtualFolha || '');
+      google.script.run
+        .withSuccessHandler((dados) => {
+          _folhaCarregada = true;
+          renderizarFolha(dados);
+        })
+        .withFailureHandler(tratarErro)
+        .obterDadosFolhaAtual(abaAlvo);
+    }
+
+    function atualizarFolhaAtual() {
+      // Atualização ampla: consulta a aba ativa atual do Sheets e sincroniza alterações de nome
+      carregarFolhaAtual('');
+    }
+
+    function trocarAbaFolha(nomeAba) {
+      if (nomeAba) {
+        _nomeAbaAtualFolha = nomeAba;
+        carregarFolhaAtual(nomeAba);
+      }
+    }
+
+    function promptRenomearFolha() {
+      const tituloAtual = document.getElementById('view-titulo-pedido').innerText || '';
+      showModalPrompt(
+        'Renomear Folha de Pedido',
+        'Digite o novo título para esta folha:',
+        tituloAtual,
+        function(novoTitulo) {
+          if (novoTitulo && novoTitulo !== tituloAtual) {
+            showLoading('Atualizando título do pedido no Sheets...');
+            google.script.run
+              .withSuccessHandler((res) => {
+                hideLoading();
+                _nomeAbaAtualFolha = res.nomeAba;
+                showToast(`Folha renomeada para "${escapeHtml(res.titulo)}"!`, 'sucesso');
+                carregarFolhaAtual(res.nomeAba);
+              })
+              .withFailureHandler(tratarErro)
+              .renomearPedidoAtual(novoTitulo, _nomeAbaAtualFolha);
+          }
+        }
+      );
+    }
+
+    function renderizarFolha(dados) {
+      hideLoading();
+      _nomeAbaAtualFolha = (dados && dados.nomeAba) ? dados.nomeAba : '';
+
+      document.getElementById('view-titulo-pedido').innerText = dados.titulo || '(Sem título)';
+      document.getElementById('view-total-alunos').innerText = `${dados.totalRegistros} material(is) registrado(s)`;
+
+      // Gerencia seletor de folhas de pedidos disponíveis
+      const containerAba = document.getElementById('container-seletor-aba');
+      const sepAba = document.getElementById('sep-aba-folha');
+      const selectAba = document.getElementById('select-aba-folha');
+
+      if (dados.abasDisponiveis && dados.abasDisponiveis.length > 1) {
+        selectAba.innerHTML = '';
+        dados.abasDisponiveis.forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = a.nomeAba;
+          opt.innerText = `${a.nomeAba} (${a.totalRegistros})`;
+          if (a.nomeAba === dados.nomeAba) opt.selected = true;
+          selectAba.appendChild(opt);
+        });
+        containerAba.style.display = 'inline-flex';
+        sepAba.style.display = 'inline';
+      } else {
+        containerAba.style.display = 'none';
+        sepAba.style.display = 'none';
+      }
+
+      const totalDup = dados.duplicidades ? dados.duplicidades.length : 0;
+      const badgeNav = document.getElementById('badge-dup-nav');
+      if (totalDup > 0) {
+        badgeNav.innerText = totalDup;
+        badgeNav.style.display = 'inline-block';
+      } else {
+        badgeNav.style.display = 'none';
+      }
+
+      const tbody = document.getElementById('view-tabela-folha');
+      tbody.innerHTML = '';
+
+      if (!dados.registros || dados.registros.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 28px; color: var(--text-muted);">A folha está vazia. Use a Central de Novo Pedido para importar materiais.</td></tr>';
+        return;
+      }
+
+      const mapDup = new Set((dados.duplicidades || []).map(d => d.linha));
+
+      dados.registros.forEach(r => {
+        const isDup = mapDup.has(r.linha);
+        const tr = document.createElement('tr');
+        if (isDup) tr.style.backgroundColor = '#fef2f2';
+
+        const aulaVal = parseInt(r.aulaAtual) || 0;
+        let badgeClass = 'badge-aula';
+        if (aulaVal === 4) badgeClass = 'badge-aula-4';
+        else if (aulaVal === 5) badgeClass = 'badge-aula-5';
+        else if (aulaVal === 6) badgeClass = 'badge-aula-6';
+
+        tr.innerHTML = `
+          <td style="color: var(--text-muted); font-size: 11px;">#${r.linha}</td>
+          <td><b>${r.aluno}</b>${isDup ? ' <span class="badge badge-danger" style="font-size:10px;">Repetido</span>' : ''}</td>
+          <td>${r.materia}</td>
+          <td>${r.educador || '<span style="color:var(--text-muted);">—</span>'}</td>
+          <td style="text-align: center;">${r.data || '—'}</td>
+          <td style="text-align: center;">${r.entrega || '—'}</td>
+          <td style="text-align: center;"><span class="badge ${badgeClass}">${aulaVal ? `${aulaVal}ª Aula` : '—'}</span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      renderizarDuplicidades(dados.duplicidades || []);
+    }
+
+    /* =============================================
+       DUPLICIDADES
+       ============================================= */
+    function renderizarDuplicidades(duplicidades) {
+      const tbody = document.getElementById('tabela-web-duplicidades');
+      tbody.innerHTML = '';
+      const btnDel = document.getElementById('btn-del-dup');
+
+      if (!duplicidades || duplicidades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 28px; color: var(--text-muted);">Nenhuma duplicidade identificada na lista atual.</td></tr>';
+        btnDel.style.display = 'none';
+        return;
+      }
+
+      btnDel.style.display = 'inline-flex';
+
+      duplicidades.forEach(d => {
+        const tr = document.createElement('tr');
+        const tagOrigem = d.tipo === 'interno'
+          ? '<span class="badge badge-warning">Mesmo Pedido</span>'
+          : '<span class="badge badge-danger">Histórico</span>';
+        tr.innerHTML = `
+          <td style="text-align: center;"><input type="checkbox" class="web-dup-check" value="${d.linha}" checked></td>
+          <td style="font-size:11px;color:var(--text-muted);">#${d.linha}</td>
+          <td><b>${d.aluno}</b></td>
+          <td>${d.materia}</td>
+          <td>${tagOrigem} <span style="font-size:11.5px;color:var(--text-muted);">${d.origem || ''}${d.dataOrigem ? ' · ' + d.dataOrigem : ''}</span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function toggleSelectAllWeb(master) {
+      document.querySelectorAll('.web-dup-check').forEach(cb => cb.checked = master.checked);
+    }
+
+    function removerDuplicadosWeb() {
+      const checkboxes = document.querySelectorAll('.web-dup-check:checked');
+      const linhas = Array.from(checkboxes).map(cb => parseInt(cb.value, 10));
+
+      if (linhas.length === 0) {
+        showModal('Nenhuma seleção', 'Selecione ao menos uma linha para remover.', { tipo: 'aviso' });
+        return;
+      }
+
+      showModal(
+        'Remover duplicidades?',
+        `${linhas.length} linha(s) selecionada(s) serão removidas permanentemente da planilha (com backup preventivo automático).`,
+        {
+          tipo: 'aviso',
+          labelConfirmar: 'Remover',
+          labelCancelar: 'Cancelar',
+          onConfirm: function() {
+            showLoading('Removendo linhas duplicadas...');
+            google.script.run
+              .withSuccessHandler(() => {
+                _folhaCarregada = false;
+                carregarFolhaAtual();
+              })
+              .withFailureHandler(tratarErro)
+              .removerLinhasDuplicadasDaFolha(linhas, _nomeAbaAtualFolha);
+          }
+        }
+      );
+    }
+
+    /* =============================================
+       HISTÓRICO DE PEDIDOS
+       ============================================= */
+    /* =============================================
+       HISTÓRICO DE PEDIDOS
+       ============================================= */
+    function carregarHistoricoWeb() {
+      showLoading('Carregando histórico de pedidos...');
+      google.script.run
+        .withSuccessHandler((lista) => {
+          hideLoading();
+          _historicoCarregado = true;
+          cacheHistorico = lista || [];
+          popularDropdownsFiltro(cacheHistorico);
+          renderizarHistoricoWeb(cacheHistorico);
+        })
+        .withFailureHandler(tratarErro)
+        .listarPedidosArquivados();
+    }
+
+    function atualizarHistorico() {
+      _historicoCarregado = false;
+      carregarHistoricoWeb();
+    }
+
+    function popularDropdownsFiltro(pedidos) {
+      const selectAno = document.getElementById('filtro-ano-hist');
+      const selectMes = document.getElementById('filtro-mes-hist');
+      const selectEduc = document.getElementById('filtro-educ-hist');
+
+      const valAnoAtual = selectAno ? selectAno.value : '';
+      const valMesAtual = selectMes ? selectMes.value : '';
+      const valEducAtual = selectEduc ? selectEduc.value : '';
+
+      const anosSet = new Set();
+      const mesesSet = new Set();
+      const educadoresSet = new Set();
+
+      (pedidos || []).forEach(p => {
+        if (p.ano) anosSet.add(p.ano);
+        if (p.mesNome) mesesSet.add(p.mesNome);
+        if (Array.isArray(p.educadores)) {
+          p.educadores.forEach(e => {
+            if (e && e !== '-' && e.toLowerCase() !== 'nenhum') educadoresSet.add(e);
+          });
+        }
+      });
+
+      if (selectAno) {
+        selectAno.innerHTML = '<option value="">Todos os Anos</option>';
+        Array.from(anosSet).sort().reverse().forEach(ano => {
+          const opt = document.createElement('option');
+          opt.value = ano;
+          opt.textContent = ano;
+          selectAno.appendChild(opt);
+        });
+        if (valAnoAtual) selectAno.value = valAnoAtual;
+      }
+
+      if (selectMes) {
+        selectMes.innerHTML = '<option value="">Todos os Meses</option>';
+        const ordemMeses = [
+          'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+        ];
+        ordemMeses.forEach(mes => {
+          if (mesesSet.has(mes)) {
+            const opt = document.createElement('option');
+            opt.value = mes;
+            opt.textContent = mes;
+            selectMes.appendChild(opt);
+          }
+        });
+        if (valMesAtual) selectMes.value = valMesAtual;
+      }
+
+      if (selectEduc) {
+        selectEduc.innerHTML = '<option value="">Todos os Educadores</option>';
+        Array.from(educadoresSet).sort().forEach(educ => {
+          const opt = document.createElement('option');
+          opt.value = educ;
+          opt.textContent = educ;
+          selectEduc.appendChild(opt);
+        });
+        if (valEducAtual) selectEduc.value = valEducAtual;
+      }
+    }
+
+    function renderizarHistoricoWeb(pedidos) {
+      const tbody = document.getElementById('tabela-web-historico');
+      tbody.innerHTML = '';
+
+      if (!pedidos || pedidos.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 28px; color: var(--text-muted);">Nenhum pedido encontrado no histórico com os filtros aplicados.</td></tr>';
+        return;
+      }
+
+      pedidos.forEach(p => {
+        const tr = document.createElement('tr');
+        const safeTitulo = escapeHtml(p.titulo || 'Pedido');
+        const safeData = escapeHtml(p.data || '');
+        const safeMesAno = escapeHtml(p.mesAno || '');
+        const safeOrdem = escapeHtml(p.numOrdem || '#---');
+        const safeEducadores = escapeHtml(p.educadoresStr || 'Não informado');
+        const safeId = String(p.idPedido || '').replace(/['"\\]/g, '');
+        const escapedTitulo = String(p.titulo || 'Pedido').replace(/['"\\]/g, '');
+
+        tr.innerHTML = `
+          <td style="text-align: center;">
+            <span class="badge badge-primary" style="font-size: 11px; font-weight: 700;">${safeOrdem}</span>
+          </td>
+          <td style="text-align: center;">
+            <div style="font-weight: 600; color: var(--text-primary); font-size: 11.5px;">${safeMesAno}</div>
+            <div style="font-size: 10px; color: var(--text-muted);">${safeData}</div>
+          </td>
+          <td>
+            <div style="font-weight: 600; color: var(--text-primary);">${safeTitulo}</div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">👨‍🏫 <b>Educador(es):</b> ${safeEducadores}</div>
+          </td>
+          <td style="text-align: center;"><span class="badge badge-success">${p.totalAlunos || 0} materiais</span></td>
+          <td style="text-align: center;">
+            <div style="display: inline-flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-sm" onclick="alterarDataPedidoWeb('${safeId}', '${safeData}', '${escapedTitulo}')" title="Alterar data, mês e ano do pedido">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                <span>Data</span>
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="editarPedidoRealWeb('${safeId}', '${escapedTitulo}')" title="Abrir planilha para editar alunos e matérias">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+                <span>Editar</span>
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="restaurarWeb('${safeId}', '${escapedTitulo}')" title="Restaurar cópia em nova aba">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                <span>Restaurar</span>
+              </button>
+              <button class="btn btn-danger-outline btn-sm" onclick="apagarHistoricoWeb('${safeId}', '${escapedTitulo}')" title="Excluir este pedido do histórico">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <span>Apagar</span>
+              </button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function alterarDataPedidoWeb(idPedido, dataAtual, tituloAtual) {
+      const inputDataId = 'modal-edit-data-' + Date.now();
+      const inputTituloId = 'modal-edit-titulo-' + Date.now();
+
+      const conteudoHtml = `
+        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.4;">
+          Altere a data e o título deste pedido. Ideal para catalogar <b>pedidos passados</b> (ex: pedidos de Agosto ou Julho registrados posteriormente).
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px;">
+          <div>
+            <label style="display: block; font-size: 11.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">Data e Hora do Pedido:</label>
+            <input type="text" id="${inputDataId}" value="${escapeHtml(dataAtual)}" placeholder="dd/MM/yyyy HH:mm" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1.5px solid var(--border-color); font-size: 13px; font-weight: 600;">
+            <span style="font-size: 10.5px; color: var(--text-muted); margin-top: 2px; display: block;">Formato: <b>dd/MM/yyyy HH:mm</b> ou <b>dd/MM/yyyy</b> (ex: 15/08/2026 14:00)</span>
+          </div>
+
+          <div>
+            <label style="display: block; font-size: 11.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">Título do Pedido:</label>
+            <input type="text" id="${inputTituloId}" value="${escapeHtml(tituloAtual)}" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1.5px solid var(--border-color); font-size: 13px;">
+          </div>
+        </div>
+      `;
+
+      showModal('Alterar Data & Competência', conteudoHtml, {
+        tipo: 'info',
+        labelConfirmar: 'Salvar Data',
+        labelCancelar: 'Cancelar',
+        onConfirm: function() {
+          const elData = document.getElementById(inputDataId);
+          const elTitulo = document.getElementById(inputTituloId);
+          const novaData = elData ? elData.value.trim() : '';
+          const novoTitulo = elTitulo ? elTitulo.value.trim() : '';
+
+          if (!novaData) {
+            showToast('Por favor, informe uma data válida.', 'aviso');
+            return;
+          }
+
+          // Atualiza imediatamente na memória local da tela
+          const pedidoObj = (cacheHistorico || []).find(p => p.idPedido === idPedido);
+          if (pedidoObj) {
+            pedidoObj.data = novaData;
+            if (novoTitulo) pedidoObj.titulo = novoTitulo;
+
+            const m = novaData.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+            if (m) {
+              const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+              const idx = parseInt(m[2], 10) - 1;
+              pedidoObj.ano = m[3];
+              pedidoObj.mesNum = m[2];
+              pedidoObj.mesNome = meses[idx] || '';
+              pedidoObj.mesAno = `${pedidoObj.mesNome} / ${pedidoObj.ano}`;
+            }
+            filtrarHistoricoWeb();
+          }
+
+          showToast('Data do pedido atualizada com sucesso!', 'sucesso');
+
+          google.script.run
+            .withSuccessHandler((res) => {
+              _historicoCarregado = false;
+              carregarHistoricoWeb();
+            })
+            .withFailureHandler(tratarErro)
+            .atualizarDataCompetenciaPedido(idPedido, novaData, novoTitulo);
+        }
+      });
+    }
+
+    function filtrarHistoricoWeb() {
+      const selectAno = document.getElementById('filtro-ano-hist');
+      const selectMes = document.getElementById('filtro-mes-hist');
+      const selectEduc = document.getElementById('filtro-educ-hist');
+      const inputTermo = document.getElementById('filtro-hist-web');
+
+      const ano = selectAno ? selectAno.value : '';
+      const mes = selectMes ? selectMes.value : '';
+      const educ = selectEduc ? selectEduc.value : '';
+      const termo = inputTermo ? inputTermo.value.toLowerCase().trim() : '';
+
+      const filtrados = (cacheHistorico || []).filter(p => {
+        // Filtro de Ano
+        if (ano && p.ano !== ano) return false;
+
+        // Filtro de Mês
+        if (mes && p.mesNome !== mes && p.mesNum !== mes) return false;
+
+        // Filtro de Educador
+        if (educ) {
+          const temEduc = Array.isArray(p.educadores) && p.educadores.some(e => (e || '').toLowerCase() === educ.toLowerCase());
+          if (!temEduc) return false;
+        }
+
+        // Filtro de Texto Livre
+        if (termo) {
+          const matchTitulo = (p.titulo || '').toLowerCase().includes(termo);
+          const matchOrdem = (p.numOrdem || '').toLowerCase().includes(termo);
+          const matchData = (p.data || '').toLowerCase().includes(termo);
+          const matchEduc = (p.educadoresStr || '').toLowerCase().includes(termo);
+          if (!matchTitulo && !matchOrdem && !matchData && !matchEduc) return false;
+        }
+
+        return true;
+      });
+
+      renderizarHistoricoWeb(filtrados);
+    }
+
+    function editarPedidoRealWeb(idPedido, titulo) {
+      showModal(
+        'Editar Pedido no Google Sheets?',
+        `Deseja abrir o pedido <b>"${escapeHtml(titulo)}"</b> na planilha?<br><br>
+        <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; background: #f8fafd; padding: 10px; border-radius: 6px; border: 1px solid var(--border);">
+          📝 <b>Como funciona:</b><br>
+          1. Os alunos e matérias serão carregados na folha do Sheets.<br>
+          2. Você poderá alterar nomes, matérias ou educadores diretamente nas células.<br>
+          3. Ao finalizar, clique em <b>"Salvar Edição no Histórico"</b> no menu superior para atualizar o banco.
+        </div>`,
+        {
+          tipo: 'info',
+          labelConfirmar: 'Abrir para Edição',
+          labelCancelar: 'Cancelar',
+          onConfirm: function() {
+            showLoading('Carregando pedido na folha do Sheets...');
+            google.script.run
+              .withSuccessHandler((res) => {
+                hideLoading();
+                try {
+                  google.script.host.close();
+                } catch (eClose) {
+                  showModal('Pedido Aberto', `O pedido <b>${escapeHtml(res.titulo)}</b> está aberto para edição na planilha. Altere as células e use o menu para salvar.`, { tipo: 'sucesso' });
+                }
+              })
+              .withFailureHandler(tratarErro)
+              .abrirPedidoParaEdicao(idPedido);
+          }
+        }
+      );
+    }
+
+    function apagarHistoricoWeb(idPedido, titulo) {
+      showModal(
+        'Apagar Pedido do Histórico?',
+        `Deseja realmente apagar o pedido <b>"${escapeHtml(titulo)}"</b>?<br><br><span style="font-size: 12px; color: var(--danger); font-weight: 500;">Esta ação excluirá os registros do banco de dados e atualizará os indicadores.</span>`,
+        {
+          tipo: 'aviso',
+          labelConfirmar: 'Apagar Definitivamente',
+          labelCancelar: 'Cancelar',
+          onConfirm: function() {
+            // Remove instantaneamente da lista na tela sem precisar recarregar ou clicar em reiniciar
+            cacheHistorico = (cacheHistorico || []).filter(p => p.idPedido !== idPedido);
+            filtrarHistoricoWeb();
+            showToast(`Pedido <b>"${escapeHtml(titulo)}"</b> apagado!`, 'sucesso');
+
+            google.script.run
+              .withSuccessHandler((res) => {
+                _historicoCarregado = false;
+                carregarHistoricoWeb();
+              })
+              .withFailureHandler((err) => {
+                tratarErro(err);
+                _historicoCarregado = false;
+                carregarHistoricoWeb();
+              })
+              .apagarPedidoHistorico(idPedido);
+          }
+        }
+      );
+    }
+
+    function restaurarWeb(idPedido, titulo) {
+      showModal(
+        'Restaurar pedido?',
+        `<b>${escapeHtml(titulo)}</b> será restaurado em uma nova aba para conferência ou reimpressão.`,
+        {
+          tipo: 'pergunta',
+          labelConfirmar: 'Restaurar',
+          onConfirm: function() {
+            showLoading('Restaurando via do pedido...');
+            google.script.run
+              .withSuccessHandler((res) => {
+                hideLoading();
+                showModal('Pedido Restaurado', `Aba <b>${escapeHtml(res.nomeAba)}</b> criada com ${res.totalItens} materiais.`, { tipo: 'sucesso' });
+                _folhaCarregada = false;
+              })
+              .withFailureHandler(tratarErro)
+              .restaurarPedidoEmNovaAba(idPedido);
+          }
+        }
+      );
+    }
+
+    /* =============================================
+       CONFIGURAÇÃO DE EDUCADORES
+       ============================================= */
+    function carregarEducadoresWeb() {
+      showLoading('Carregando educadores...');
+      google.script.run
+        .withSuccessHandler((lista) => {
+          hideLoading();
+          _educadoresCarregado = true;
+          renderizarEducadoresWeb(lista);
+        })
+        .withFailureHandler(tratarErro)
+        .obterEducadoresIgnorados();
+    }
+
+    function atualizarEducadores() {
+      _educadoresCarregado = false;
+      carregarEducadoresWeb();
+    }
+
+    function renderizarEducadoresWeb(lista) {
+      const tbody = document.getElementById('tabela-web-educadores');
+      tbody.innerHTML = '';
+
+      if (!lista || lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2" style="text-align: center; padding: 24px; color: var(--text-muted);">Nenhum educador cadastrado.</td></tr>';
+        return;
+      }
+
+      lista.forEach(nome => {
+        const nomeSeguro = nome.replace(/'/g, '\\\'').replace(/"/g, '&quot;');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><b>${nome}</b></td>
+          <td style="text-align: center;">
+            <button class="btn btn-danger-outline btn-sm" onclick="removerEducadorWeb('${nomeSeguro}')">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <span>Remover</span>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function adicionarEducadorWeb() {
+      const input = document.getElementById('input-novo-educador');
+      const nome = input.value.trim();
+      if (!nome) return;
+
+      showLoading('Adicionando educador...');
+      google.script.run
+        .withSuccessHandler((novaLista) => {
+          hideLoading();
+          input.value = '';
+          renderizarEducadoresWeb(novaLista);
+        })
+        .withFailureHandler(tratarErro)
+        .adicionarEducadorIgnorado(nome);
+    }
+
+    function removerEducadorWeb(nome) {
+      showModal(
+        'Remover educador?',
+        `<b>${nome}</b> será removido da lista de exclusão automática.`,
+        {
+          tipo: 'aviso',
+          labelConfirmar: 'Remover',
+          onConfirm: function() {
+            showLoading('Removendo educador...');
+            google.script.run
+              .withSuccessHandler((novaLista) => {
+                hideLoading();
+                renderizarEducadoresWeb(novaLista);
+              })
+              .withFailureHandler(tratarErro)
+              .removerEducadorIgnorado(nome);
+          }
+        }
+      );
+    }
+
+    /* =============================================
+       ARQUIVAR PEDIDO
+       ============================================= */
+    function arquivarPedido() {
+      showModal(
+        'Arquivar pedido atual?',
+        'O pedido atual será gravado no histórico definitivo e uma nova aba em branco será preparada para o próximo ciclo.',
+        {
+          tipo: 'pergunta',
+          labelConfirmar: 'Arquivar',
+          onConfirm: function() {
+            showLoading('Arquivando pedido atual...');
+            google.script.run
+              .withSuccessHandler((res) => {
+                hideLoading();
+                _folhaCarregada = false;
+                _historicoCarregado = false;
+                _nomeAbaAtualFolha = '';
+                showModal(
+                  'Pedido Arquivado!',
+                  `${res.totalRegistros} materiais salvos no histórico.<br><br>Nova folha <b>${res.novaAba}</b> pronta para novos pedidos.`,
+                  { tipo: 'sucesso' }
+                );
+                setTimeout(() => carregarFolhaAtual(), 400);
+              })
+              .withFailureHandler(tratarErro)
+              .arquivarPedidoAtual(_nomeAbaAtualFolha);
+          }
+        }
+      );
+    }
+
+    /* =============================================
+       EXPORTAÇÃO DIRETA (PDF & EXCEL)
+       ============================================= */
+    function exportarPDF() {
+      showLoading('Preparando arquivo PDF para download...');
+      google.script.run
+        .withSuccessHandler((res) => {
+          hideLoading();
+          if (res && res.url) {
+            window.open(res.url, '_blank');
+          } else {
+            showModal('Download de PDF', 'Não foi possível gerar a URL de download.', { tipo: 'aviso' });
+          }
+        })
+        .withFailureHandler(tratarErro)
+        .obterUrlExportacaoPDF(_nomeAbaAtualFolha);
+    }
+
+    function exportarExcel() {
+      showLoading('Preparando planilha Excel para download...');
+      google.script.run
+        .withSuccessHandler((res) => {
+          hideLoading();
+          if (res && res.url) {
+            window.open(res.url, '_blank');
+          } else {
+            showModal('Download de Excel', 'Não foi possível gerar a URL de download.', { tipo: 'aviso' });
+          }
+        })
+        .withFailureHandler(tratarErro)
+        .obterUrlExportacaoExcel(_nomeAbaAtualFolha);
+    }
+
+    /* =============================================
+       UTILITÁRIOS
+       ============================================= */
+    function showLoading(msg) {
+      document.getElementById('loading-web-text').innerText = msg;
+      document.getElementById('loading-web').style.display = 'flex';
+    }
+
+    function hideLoading() {
+      document.getElementById('loading-web').style.display = 'none';
+    }
+
+    function tratarErro(err) {
+      hideLoading();
+      showModal('Erro na Operação', (err.message || String(err)), { tipo: 'erro' });
+    }
+  </script>
+</body>
+</html>

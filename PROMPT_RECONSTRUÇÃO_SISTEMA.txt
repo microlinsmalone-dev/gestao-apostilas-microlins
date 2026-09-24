@@ -1,0 +1,2653 @@
+# PROMPT MESTRE — RECONSTRUÇÃO DO SISTEMA “GESTÃO DE APOSTILAS - MICROLINS”
+
+## PAPEL
+
+Atue simultaneamente como:
+
+* Arquiteto de software sênior.
+* Engenheiro full-stack.
+* Especialista em Next.js, React e TypeScript.
+* Especialista em PostgreSQL e Supabase.
+* Especialista em UX/UI para sistemas administrativos.
+* Especialista em migração de sistemas Google Sheets/Google Apps Script para aplicações web.
+* Engenheiro de segurança de aplicações.
+* Engenheiro de testes automatizados.
+* Especialista em processamento de arquivos Excel.
+* Especialista em arquitetura de sistemas administrativos e CRUDs complexos.
+
+Você deverá reconstruir o sistema existente chamado:
+
+**Gestão de Apostilas - Microlins Potirendaba**
+
+A aplicação atual funciona com:
+
+**Google Sheets + Google Apps Script + Web App HTML**
+
+A nova aplicação deverá funcionar como:
+
+**Aplicação Web + Next.js + TypeScript + Supabase + PostgreSQL + GitHub + Vercel**
+
+O Google Sheets deverá deixar de ser o banco de dados e deixar de ser o núcleo operacional do sistema.
+
+---
+
+# 1. OBJETIVO PRINCIPAL
+
+Criar uma nova versão profissional, moderna, responsiva e independente do Google Sheets do sistema:
+
+**Gestão de Apostilas - Microlins Potirendaba**
+
+A aplicação deverá preservar as regras de negócio já existentes, mas substituir a infraestrutura baseada em planilhas por uma aplicação web com banco de dados relacional.
+
+O resultado deverá ser uma aplicação acessível por navegador, com URL pública de produção, sendo o GitHub o repositório oficial do código e a Vercel o ambiente recomendado para publicação da aplicação web.
+
+Não transforme o projeto em uma simples página estática.
+
+O sistema precisa ser uma aplicação real, persistente, segura e preparada para evolução.
+
+---
+
+# 2. DOCUMENTAÇÃO ORIGINAL QUE DEVE SER CONSIDERADA COMO FONTE PRINCIPAL
+
+O projeto possui documentação original descrevendo o sistema atual.
+
+Considere como fonte funcional:
+
+* README.md
+* DOCUMENTACAO_SISTEMA.md
+
+Esses documentos descrevem:
+
+* regras de negócio;
+* estrutura original;
+* fluxo de importação;
+* controle de duplicidades;
+* histórico;
+* configurações;
+* dashboard;
+* edição;
+* restauração;
+* exclusão;
+* exportação;
+* identidade visual;
+* testes.
+
+Não remova funcionalidades existentes apenas porque a implementação antiga estava baseada no Google Sheets.
+
+A infraestrutura deve mudar.
+
+As regras de negócio devem ser preservadas.
+
+---
+
+# 3. REGRA FUNDAMENTAL DA MIGRAÇÃO
+
+Não faça uma “reinterpretação criativa” do sistema.
+
+O objetivo é:
+
+**MIGRAR A ARQUITETURA, NÃO MUDAR O NEGÓCIO.**
+
+Sempre preserve:
+
+* comportamento esperado;
+* regras de exclusão;
+* regras de duplicidade;
+* histórico;
+* filtros;
+* títulos;
+* edição;
+* restauração;
+* configurações;
+* exportação;
+* identificação dos pedidos;
+* indicadores;
+* identidade visual.
+
+Quando a documentação não fornecer informação suficiente para implementar alguma regra específica, NÃO invente uma regra de negócio.
+
+Crie uma abstração configurável ou deixe a informação explicitamente documentada como pendência.
+
+---
+
+# 4. ARQUITETURA RECOMENDADA
+
+Utilize uma arquitetura:
+
+**Modular Monolith + Backend BaaS**
+
+Tecnologias principais:
+
+### Frontend
+
+* Next.js
+* React
+* TypeScript
+* App Router
+* Tailwind CSS
+* shadcn/ui
+* Lucide React
+
+### Estado e dados
+
+* Supabase
+* PostgreSQL
+* Supabase Auth
+* Supabase Storage
+* Supabase Realtime quando houver real necessidade
+
+### Validação
+
+* Zod
+* React Hook Form
+
+### Tabelas
+
+* TanStack Table
+
+### Datas
+
+* date-fns
+
+### Importação
+
+* SheetJS / `xlsx`
+
+### Exportação
+
+* XLSX/ExcelJS ou SheetJS para Excel
+* `@react-pdf/renderer` para PDF
+
+### Testes
+
+* Vitest
+* Testing Library
+* Playwright
+
+### Controle de versão
+
+* Git
+* GitHub
+
+### Deploy
+
+* Vercel para o frontend/aplicação Next.js
+* Supabase para banco, autenticação, storage e funções
+
+### CI/CD
+
+* GitHub Actions
+
+---
+
+# 5. PRINCÍPIO ARQUITETURAL
+
+O sistema deverá seguir a seguinte lógica:
+
+```text
+USUÁRIO
+   ↓
+NEXT.JS / REACT
+   ↓
+CAMADA DE DOMÍNIO
+   ↓
+SUPABASE
+   ├── PostgreSQL
+   ├── Auth
+   ├── Storage
+   └── Functions
+```
+
+O Google Sheets NÃO deve ser necessário para operar o sistema.
+
+---
+
+# 6. FONTE OFICIAL DOS DADOS
+
+O PostgreSQL do Supabase passa a ser a fonte oficial.
+
+Não utilizar:
+
+* Google Sheets como banco;
+* localStorage como banco;
+* arquivos JSON como banco;
+* arrays permanentes no frontend;
+* IndexedDB como fonte principal;
+* arquivos Excel como fonte oficial.
+
+Excel é apenas uma fonte de importação.
+
+---
+
+# 7. BANCO DE DADOS
+
+Criar estrutura relacional adequada.
+
+Sugestão inicial:
+
+```text
+profiles
+units
+unit_settings
+educators
+orders
+order_items
+import_files
+audit_logs
+```
+
+Pode criar outras tabelas caso sejam necessárias para uma arquitetura correta.
+
+---
+
+# 8. TABELA `profiles`
+
+Criar perfil de usuário relacionado ao Supabase Auth.
+
+Campos sugeridos:
+
+```text
+id
+user_id
+name
+email
+role
+unit_id
+active
+created_at
+updated_at
+```
+
+Roles iniciais:
+
+```text
+admin
+operator
+viewer
+```
+
+Não criar dezenas de permissões complexas sem necessidade.
+
+---
+
+# 9. TABELA `units`
+
+Embora inicialmente exista apenas:
+
+**Microlins Potirendaba**
+
+crie suporte estrutural para unidade.
+
+Campos sugeridos:
+
+```text
+id
+name
+slug
+active
+created_at
+updated_at
+```
+
+Cadastrar inicialmente:
+
+```text
+Microlins Potirendaba
+```
+
+---
+
+# 10. TABELA `unit_settings`
+
+Guardar configurações que hoje ficam em `Config.js`.
+
+Exemplos:
+
+```text
+default_lesson_from
+default_lesson_to
+ignored_subjects
+excluded_contract_types
+default_contract_status
+default_delinquency
+default_physical_delivery
+institutional_blue
+institutional_red
+duplicate_background
+duplicate_text
+```
+
+Valores iniciais:
+
+```text
+Status do contrato: Ativo
+Inadimplência: Não
+Entrega física: Não
+Faixa padrão: aula 4 até 6
+Contrato excluído: Bolsista
+Matérias ignoradas:
+- Digitação
+- Digitacao
+```
+
+Cores:
+
+```text
+Azul: #0f3b7d
+Vermelho: #d91a2a
+Fundo de alerta: #fce8e6
+Texto de alerta: #c5221f
+```
+
+Os valores devem ser configuráveis pela tela de administração.
+
+---
+
+# 11. TABELA `educators`
+
+Representar a lista de educadores e nomes administrativos que devem ser ignorados na importação.
+
+Campos:
+
+```text
+id
+unit_id
+name
+normalized_name
+active
+created_at
+updated_at
+```
+
+Implementar normalização para:
+
+* maiúsculas/minúsculas;
+* espaços duplicados;
+* acentos;
+* caracteres inconsistentes.
+
+Preservar o nome original para apresentação.
+
+A regra deve permitir cadastrar nomes adicionais sem alterar o código.
+
+---
+
+# 12. TABELA `orders`
+
+Representa um pedido de apostilas.
+
+Campos sugeridos:
+
+```text
+id
+unit_id
+order_number
+title
+status
+archived_at
+competence_date
+competence_month
+competence_year
+created_by
+created_at
+updated_at
+```
+
+Status:
+
+```text
+draft
+open
+archived
+editing
+cancelled
+```
+
+`order_number` deve ser amigável:
+
+```text
+#001
+#002
+#003
+```
+
+Não usar o número amigável como chave primária.
+
+O ID real deve ser UUID.
+
+---
+
+# 13. TABELA `order_items`
+
+Cada aluno/matéria do pedido deverá ser uma linha.
+
+Campos sugeridos:
+
+```text
+id
+order_id
+student_name
+student_name_normalized
+subject_name
+subject_name_normalized
+educator_name
+scheduled_day
+scheduled_time
+class_schedule
+current_lesson
+next_subject
+phone
+delivery_status
+release_status
+source_row
+created_at
+updated_at
+```
+
+Adicionar outros campos caso os arquivos reais de importação indiquem necessidade.
+
+É importante preservar:
+
+* valor original;
+* valor normalizado.
+
+Exemplo:
+
+```text
+subject_name:
+161869_Windows 11
+
+subject_name_normalized:
+windows 11
+```
+
+O sistema deverá apresentar:
+
+```text
+Windows 11
+```
+
+mas preservar a informação original quando necessário para auditoria.
+
+---
+
+# 14. REGRA DE HIGIENIZAÇÃO DE MATÉRIAS
+
+Implementar a regra original:
+
+```text
+161869_Windows 11
+```
+
+deve resultar em:
+
+```text
+Windows 11
+```
+
+Criar uma função isolada:
+
+```text
+sanitizeSubject()
+```
+
+Não espalhar essa regra pelo frontend.
+
+Criar testes específicos.
+
+---
+
+# 15. EXCLUSÃO DE DIGITAÇÃO
+
+O sistema deverá ignorar automaticamente:
+
+```text
+Digitação
+Digitacao
+```
+
+A comparação deve ser robusta contra:
+
+* maiúsculas;
+* minúsculas;
+* espaços;
+* acentos.
+
+Exemplo:
+
+```text
+DIGITAÇÃO
+digitação
+Digitacao
+DIGITACAO
+```
+
+devem ser tratados como a mesma matéria ignorada.
+
+A lista precisa ser configurável.
+
+---
+
+# 16. EXCLUSÃO DE EDUCADORES
+
+Os nomes cadastrados no módulo de configurações de educadores devem ser automaticamente excluídos da importação.
+
+Não criar lista fixa hardcoded.
+
+Os educadores devem ser administráveis pela interface.
+
+---
+
+# 17. REGRAS DE CONTRATO
+
+Preservar:
+
+```text
+Status = Ativo
+Inadimplência = Não
+Entrega Física = Não
+```
+
+Contrato:
+
+```text
+Bolsista
+```
+
+deve ser excluído por padrão.
+
+Permitir configuração futura.
+
+---
+
+# 18. IMPORTAÇÃO DE ARQUIVOS
+
+A interface deve aceitar:
+
+```text
+.xls
+.xlsx
+.csv
+.txt
+```
+
+Utilizar:
+
+```text
+SheetJS / XLSX
+```
+
+para leitura dos arquivos.
+
+Fluxo:
+
+```text
+UPLOAD
+↓
+VALIDAÇÃO
+↓
+LEITURA
+↓
+IDENTIFICAÇÃO DA ESTRUTURA
+↓
+NORMALIZAÇÃO
+↓
+HIGIENIZAÇÃO
+↓
+APLICAÇÃO DAS REGRAS
+↓
+DETECÇÃO DE DUPLICIDADES
+↓
+ENRIQUECIMENTO PEDAGÓGICO
+↓
+PRÉ-VISUALIZAÇÃO
+↓
+CURADORIA DO OPERADOR
+↓
+FINALIZAÇÃO
+↓
+SALVAMENTO NO SUPABASE
+```
+
+---
+
+# 19. IMPORTAÇÃO DE DIFERENTES RELATÓRIOS
+
+O sistema atual suporta pelo menos:
+
+```text
+Relatório de Entrega de Apostila
+Controle Pedagógico
+```
+
+Criar uma camada:
+
+```text
+ImportAdapter
+```
+
+com adaptadores:
+
+```text
+ApostilaDeliveryImportAdapter
+PedagogicalControlImportAdapter
+```
+
+Evite colocar todos os formatos dentro de um único arquivo gigante.
+
+Estrutura esperada:
+
+```text
+lib/importers/
+  apostila-delivery.ts
+  pedagogical-control.ts
+  import-types.ts
+  import-normalizer.ts
+  import-validator.ts
+```
+
+IMPORTANTE:
+
+A documentação fornecida não apresenta todas as colunas concretas dos arquivos Excel de origem.
+
+Portanto:
+
+* não inventar colunas;
+* permitir mapeamento de colunas;
+* detectar colunas por nomes;
+* criar aliases configuráveis;
+* registrar colunas não reconhecidas;
+* mostrar ao usuário quando houver incompatibilidade.
+
+Quando arquivos reais de exemplo estiverem disponíveis, adaptar os mapeadores de forma precisa.
+
+---
+
+# 20. ENRIQUECIMENTO PEDAGÓGICO
+
+Quando os dados existirem no arquivo de Controle Pedagógico, processar:
+
+* dia da semana;
+* horário;
+* próxima matéria;
+* telefone de contato.
+
+Exemplo:
+
+```text
+Segunda-Feira (15:30)
+```
+
+Não perder essas informações durante o processo.
+
+---
+
+# 21. FILTRO POR AULA
+
+A interface deverá ter:
+
+```text
+De: [4]
+Até: [6]
+```
+
+e:
+
+```text
+[ Todas as Aulas ]
+```
+
+Permitir:
+
+```text
+1 até 10
+4 até 6
+6 até 8
+etc.
+```
+
+A filtragem deve ocorrer sem nova importação do arquivo.
+
+O usuário deverá conseguir alterar os filtros instantaneamente.
+
+---
+
+# 22. DUPLICIDADE
+
+Esse é um dos pontos mais importantes do sistema.
+
+Implementar:
+
+## DUPLICIDADE INTERNA
+
+Detectar:
+
+```text
+mesmo aluno + mesma matéria
+```
+
+dentro do mesmo pedido.
+
+## DUPLICIDADE HISTÓRICA
+
+Comparar com pedidos já arquivados.
+
+Detectar:
+
+```text
+mesmo aluno + mesma matéria
+```
+
+existente anteriormente.
+
+---
+
+# 23. NORMALIZAÇÃO DE DUPLICIDADE
+
+Criar:
+
+```text
+normalizeName()
+normalizeSubject()
+createDuplicateFingerprint()
+```
+
+Exemplo:
+
+```text
+Aluno:
+João da Silva
+
+Matéria:
+Windows 11
+```
+
+gera um fingerprint determinístico.
+
+O fingerprint pode ser:
+
+```text
+hash(normalized_student + "|" + normalized_subject)
+```
+
+Não perder os valores originais.
+
+---
+
+# 24. SEGURANÇA DA DUPLICIDADE
+
+A verificação não deve depender apenas do frontend.
+
+Usar também:
+
+* constraints;
+* índices;
+* consultas SQL;
+* funções PostgreSQL quando forem úteis.
+
+O frontend alerta.
+
+O banco protege a integridade.
+
+Nunca confiar somente no JavaScript do navegador.
+
+---
+
+# 25. DASHBOARD
+
+Criar dashboard moderno e responsivo.
+
+Substituir a antiga aba Dashboard do Google Sheets por uma página:
+
+```text
+/dashboard
+```
+
+KPIs:
+
+```text
+Total de pedidos arquivados
+Total de apostilas entregues
+Pedidos no mês atual
+Status do sistema
+```
+
+Status:
+
+```text
+Livre
+Em Aberto
+Em Edição
+```
+
+Adicionar:
+
+```text
+Pedidos recentes
+Últimos pedidos arquivados
+Quantidade de itens
+Data
+Competência
+Educadores
+Status
+Ações
+```
+
+---
+
+# 26. MENU PRINCIPAL
+
+O novo sistema deverá ter navegação lateral ou superior.
+
+Itens:
+
+```text
+Dashboard
+Novo Pedido
+Importar
+Pedidos Abertos
+Histórico
+Educadores
+Configurações
+Relatórios
+Auditoria
+```
+
+A interface precisa ser muito mais agradável que uma planilha.
+
+---
+
+# 27. CENTRAL DE APOSTILAS
+
+Criar página:
+
+```text
+/nova-ordem
+```
+
+Fluxo em etapas.
+
+### ETAPA 1
+
+Título:
+
+```text
+Novo Pedido
+[Título]
+```
+
+Preservar exatamente:
+
+```text
+maiúsculas
+minúsculas
+acentos
+pontuação
+```
+
+Nunca executar:
+
+```text
+toUpperCase()
+```
+
+no título.
+
+---
+
+# 28. ETAPA 2 — UPLOAD
+
+Área grande de drag and drop:
+
+```text
+Arraste o relatório aqui
+ou
+[Selecionar arquivo]
+```
+
+Mostrar:
+
+* nome;
+* tamanho;
+* extensão;
+* progresso;
+* status da leitura.
+
+---
+
+# 29. ETAPA 3 — INSPEÇÃO
+
+Criar tabela moderna.
+
+Colunas:
+
+```text
+Aula
+Aluno
+Matéria
+Educador
+Dia/Horário
+Próxima Matéria
+Telefone
+Status
+Duplicidade
+Ações
+```
+
+Adicionar:
+
+* ordenação;
+* filtros;
+* pesquisa;
+* paginação;
+* seleção;
+* exclusão individual;
+* exclusão em massa.
+
+---
+
+# 30. ALERTAS DE CURADORIA
+
+O sistema deve destacar alunos que:
+
+* possuem múltiplas matérias;
+* possuem cursos futuros;
+* aparecem em duplicidade;
+* estão sujeitos a alguma regra de exclusão;
+* possuem informação incompleta.
+
+Não apagar automaticamente itens durante a pré-visualização sem informar claramente o motivo.
+
+---
+
+# 31. EXCLUSÃO MANUAL
+
+Cada registro deverá ter:
+
+```text
+Excluir
+```
+
+Ao excluir:
+
+* não apagar silenciosamente;
+* registrar motivo;
+* permitir desfazer enquanto a importação estiver aberta;
+* atualizar os contadores.
+
+---
+
+# 32. FINALIZAÇÃO
+
+Botão principal:
+
+```text
+Finalizar e Gerar Pedido
+```
+
+Ao finalizar:
+
+1. validar dados;
+2. verificar duplicidades novamente;
+3. aplicar regras;
+4. iniciar transação;
+5. criar pedido;
+6. gravar itens;
+7. registrar auditoria;
+8. atualizar dashboard;
+9. informar sucesso.
+
+Não considerar o frontend como etapa de segurança.
+
+---
+
+# 33. HISTÓRICO
+
+Criar:
+
+```text
+/historico
+```
+
+Tabela com:
+
+```text
+Número
+Título
+Data
+Competência
+Quantidade de apostilas
+Educadores
+Status
+Criado por
+Ações
+```
+
+Filtros:
+
+```text
+Período
+Mês
+Ano
+Educador
+Título
+Status
+```
+
+---
+
+# 34. AÇÕES DO HISTÓRICO
+
+Cada pedido poderá ter:
+
+```text
+Editar
+Visualizar
+Restaurar
+Exportar PDF
+Exportar Excel
+Alterar data
+Apagar
+```
+
+---
+
+# 35. EDIÇÃO
+
+A edição de um pedido arquivado não deve criar outro pedido.
+
+Deve:
+
+* manter o ID;
+* manter a data original de criação;
+* atualizar `updated_at`;
+* registrar quem alterou;
+* registrar o que mudou;
+* permitir cancelar alterações antes do salvamento.
+
+---
+
+# 36. AUDITORIA
+
+Criar tabela:
+
+```text
+audit_logs
+```
+
+Registrar operações como:
+
+```text
+CREATE_ORDER
+UPDATE_ORDER
+DELETE_ORDER
+RESTORE_ORDER
+EDIT_ORDER
+IMPORT_FILE
+DELETE_ITEM
+CHANGE_SETTINGS
+ADD_EDUCATOR
+REMOVE_EDUCATOR
+LOGIN
+```
+
+Guardar:
+
+```text
+user_id
+unit_id
+action
+entity_type
+entity_id
+metadata
+created_at
+```
+
+---
+
+# 37. RESTAURAÇÃO
+
+“Restaurar” não deve sobrescrever silenciosamente o histórico.
+
+Ao restaurar:
+
+* criar nova cópia operacional;
+* manter referência ao pedido original;
+* informar a origem;
+* permitir edição;
+* permitir nova impressão/exportação.
+
+---
+
+# 38. EXCLUSÃO
+
+Excluir pedido somente mediante confirmação.
+
+Para registros importantes, preferir:
+
+```text
+soft delete
+```
+
+quando houver motivo operacional.
+
+Se a função “Apagar definitivamente” for mantida, criar confirmação forte.
+
+Exemplo:
+
+```text
+Digite EXCLUIR para confirmar
+```
+
+Registrar também na auditoria.
+
+---
+
+# 39. LIMPEZA DE DUPLICIDADES HISTÓRICAS
+
+Preservar a antiga funcionalidade:
+
+```text
+Remover pedidos duplicados no histórico
+```
+
+Mas transformar em ferramenta administrativa.
+
+Criar uma página:
+
+```text
+/ferramentas/higienizacao
+```
+
+Mostrar:
+
+```text
+Pedidos duplicados encontrados
+Motivo
+Registros envolvidos
+Data
+Ação sugerida
+```
+
+Não excluir automaticamente sem uma operação explícita.
+
+---
+
+# 40. CONFIGURAÇÕES DE EDUCADORES
+
+Criar:
+
+```text
+/configuracoes/educadores
+```
+
+Recursos:
+
+```text
+Adicionar
+Editar
+Ativar
+Desativar
+Pesquisar
+Excluir
+```
+
+Mostrar:
+
+```text
+Nome
+Status
+Data de cadastro
+Última alteração
+```
+
+---
+
+# 41. CONFIGURAÇÕES DO SISTEMA
+
+Criar:
+
+```text
+/configuracoes
+```
+
+Seções:
+
+### Regras de importação
+
+### Matérias ignoradas
+
+### Tipos de contrato excluídos
+
+### Faixa padrão de aulas
+
+### Educadores ignorados
+
+### Identidade visual
+
+### Parâmetros da unidade
+
+---
+
+# 42. IDENTIDADE VISUAL
+
+Preservar a identidade:
+
+```text
+#0f3b7d
+#d91a2a
+```
+
+Usar aparência:
+
+* institucional;
+* moderna;
+* limpa;
+* profissional;
+* administrativa;
+* responsiva.
+
+Não exagerar em elementos decorativos.
+
+Priorizar produtividade.
+
+---
+
+# 43. DESIGN SYSTEM
+
+Criar tokens de design.
+
+Exemplo:
+
+```text
+primary
+primary-foreground
+secondary
+danger
+warning
+success
+background
+surface
+border
+text
+muted
+```
+
+Usar os valores Microlins como identidade principal.
+
+Utilizar componentes reutilizáveis:
+
+```text
+Button
+Card
+Modal
+Dialog
+DataTable
+Badge
+Input
+Select
+Tabs
+Dropdown
+Toast
+Drawer
+Pagination
+EmptyState
+LoadingState
+ConfirmDialog
+```
+
+---
+
+# 44. RESPONSIVIDADE
+
+O sistema deverá funcionar corretamente em:
+
+* desktop;
+* notebook;
+* tablet;
+* celular.
+
+Não desenvolver pensando apenas em monitor grande.
+
+Priorizar:
+
+```text
+mobile-first
+```
+
+A tabela deverá ter comportamento adaptativo.
+
+No celular:
+
+* permitir rolagem horizontal controlada;
+* congelar colunas essenciais quando necessário;
+* transformar ações em menu;
+* usar cards para algumas visualizações.
+
+---
+
+# 45. ACESSIBILIDADE
+
+Implementar:
+
+* navegação por teclado;
+* foco visível;
+* labels;
+* aria quando necessário;
+* contraste adequado;
+* mensagens de erro acessíveis;
+* estados de loading claros.
+
+---
+
+# 46. EXPORTAÇÃO PDF
+
+Criar exportação:
+
+```text
+A4
+Retrato
+```
+
+Preservar o conceito original do pedido.
+
+Layout:
+
+```text
+Título
+Cabeçalho
+Aluno
+Matéria
+Educador
+Data
+Entrega
+Liberação
+Aula Atual
+```
+
+Porém, como a aplicação é web, a coluna:
+
+```text
+Aula Atual
+```
+
+deve poder ser omitida da impressão quando necessário, preservando o comportamento original.
+
+Adicionar:
+
+```text
+assinaturas
+```
+
+com espaço equivalente às 15 linhas adicionais do sistema antigo.
+
+Não depender da impressora ou de uma planilha para criar o documento.
+
+---
+
+# 47. EXPORTAÇÃO EXCEL
+
+Adicionar:
+
+```text
+Exportar Excel
+```
+
+Gerar `.xlsx`.
+
+O arquivo deve conter:
+
+* título;
+* cabeçalhos;
+* dados;
+* formatação;
+* largura das colunas;
+* filtros;
+* linhas de assinatura quando aplicável.
+
+Nome:
+
+```text
+[TÍTULO DO PEDIDO].xlsx
+```
+
+Sanitizar caracteres inválidos para nome de arquivo.
+
+---
+
+# 48. ARMAZENAMENTO DE ARQUIVOS
+
+Criar bucket privado no Supabase Storage:
+
+```text
+imports
+```
+
+Opcionalmente:
+
+```text
+exports
+```
+
+Guardar:
+
+* arquivo original;
+* nome;
+* tamanho;
+* MIME;
+* usuário;
+* pedido associado;
+* data.
+
+Não deixar arquivos sensíveis públicos.
+
+Usar URLs temporárias quando necessário.
+
+---
+
+# 49. SUPABASE AUTH
+
+Implementar autenticação.
+
+Preferência inicial:
+
+```text
+Email + senha
+```
+
+Preparar arquitetura para eventualmente aceitar:
+
+```text
+Google
+Magic Link
+```
+
+Não colocar segredo do Supabase no frontend.
+
+Usar apenas a chave pública apropriada no cliente.
+
+Nunca expor:
+
+```text
+service_role
+```
+
+no navegador.
+
+---
+
+# 50. ROW LEVEL SECURITY
+
+Ativar RLS nas tabelas expostas.
+
+Toda tabela deverá ter política adequada.
+
+As regras devem considerar:
+
+```text
+usuário
+unidade
+papel
+```
+
+Um usuário de determinada unidade não deve acessar dados de outra unidade.
+
+Não confiar somente em verificações React.
+
+A segurança deve existir no banco.
+
+---
+
+# 51. MIGRAÇÕES SUPABASE
+
+Criar:
+
+```text
+supabase/
+  migrations/
+  functions/
+  seed.sql
+  config.toml
+```
+
+Toda alteração estrutural deve passar por migration.
+
+Não depender de alterações manuais no Dashboard do Supabase como processo principal.
+
+Versionar migrations no GitHub.
+
+---
+
+# 52. ESTRUTURA DO REPOSITÓRIO
+
+Utilizar estrutura semelhante:
+
+```text
+/
+├── app/
+│   ├── dashboard/
+│   ├── nova-ordem/
+│   ├── pedidos/
+│   ├── historico/
+│   ├── configuracoes/
+│   ├── importacao/
+│   └── api/
+│
+├── components/
+│   ├── ui/
+│   ├── dashboard/
+│   ├── orders/
+│   ├── import/
+│   ├── history/
+│   └── settings/
+│
+├── lib/
+│   ├── supabase/
+│   ├── auth/
+│   ├── imports/
+│   ├── orders/
+│   ├── duplicates/
+│   ├── exports/
+│   ├── validation/
+│   └── utils/
+│
+├── types/
+│
+├── hooks/
+│
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── e2e/
+│
+├── supabase/
+│   ├── migrations/
+│   ├── functions/
+│   ├── seed.sql
+│   └── config.toml
+│
+├── public/
+│
+├── .github/
+│   └── workflows/
+│
+├── README.md
+├── package.json
+├── tsconfig.json
+├── next.config.ts
+└── ...
+```
+
+Não criar arquivos gigantes.
+
+---
+
+# 53. SEPARAÇÃO DE RESPONSABILIDADES
+
+Nunca colocar toda a aplicação em:
+
+```text
+page.tsx
+```
+
+Separar:
+
+```text
+UI
+↓
+Application Service
+↓
+Domain Logic
+↓
+Repository / Supabase
+```
+
+Exemplo:
+
+```text
+components/import/import-table.tsx
+```
+
+apenas interface.
+
+Enquanto:
+
+```text
+lib/imports/process-import.ts
+```
+
+contém a lógica.
+
+---
+
+# 54. DOMAIN SERVICES
+
+Criar serviços independentes como:
+
+```text
+processImport()
+sanitizeSubject()
+filterEligibleStudents()
+detectInternalDuplicates()
+detectHistoricalDuplicates()
+createOrder()
+archiveOrder()
+editOrder()
+restoreOrder()
+deleteOrder()
+generatePdf()
+generateExcel()
+```
+
+Essas funções devem ser testáveis sem depender de componentes React.
+
+---
+
+# 55. TIPAGEM
+
+Usar TypeScript estrito.
+
+Não utilizar:
+
+```text
+any
+```
+
+sem justificativa.
+
+Gerar os tipos do Supabase a partir do banco quando possível.
+
+Manter:
+
+```text
+Database
+Tables
+Enums
+RPCs
+```
+
+tipados.
+
+---
+
+# 56. TRATAMENTO DE ERROS
+
+Nunca usar:
+
+```text
+catch (e) {}
+```
+
+silencioso.
+
+Criar mensagens úteis.
+
+Exemplo:
+
+```text
+Não foi possível importar o arquivo.
+Verifique se o relatório corresponde a um dos modelos aceitos.
+```
+
+Registrar detalhes técnicos em log.
+
+Não mostrar stack trace ao usuário.
+
+---
+
+# 57. ESTADOS DE INTERFACE
+
+Todas as páginas deverão ter:
+
+```text
+loading
+success
+empty
+error
+```
+
+Nunca deixar a tela “congelada”.
+
+Exemplo:
+
+```text
+Importando 347 registros...
+```
+
+---
+
+# 58. PERFORMANCE
+
+Evitar:
+
+* buscar toda a tabela histórica sempre;
+* carregar milhares de registros no primeiro carregamento;
+* consultas N+1;
+* recalcular duplicidade item por item no frontend;
+* componentes desnecessariamente pesados.
+
+Usar:
+
+* paginação;
+* índices PostgreSQL;
+* queries filtradas;
+* busca server-side;
+* agregações SQL;
+* debounce;
+* cache quando fizer sentido.
+
+---
+
+# 59. ÍNDICES DO BANCO
+
+Criar índices para campos utilizados frequentemente:
+
+```text
+orders.unit_id
+orders.archived_at
+orders.competence_date
+orders.competence_year
+orders.competence_month
+order_items.order_id
+order_items.student_name_normalized
+order_items.subject_name_normalized
+educators.unit_id
+educators.normalized_name
+```
+
+Criar índices compostos quando forem realmente necessários.
+
+---
+
+# 60. DUPLICIDADE NO BANCO
+
+Criar estratégia eficiente para encontrar:
+
+```text
+student + subject
+```
+
+histórica e internamente.
+
+Avaliar uso de:
+
+```text
+duplicate_fingerprint
+```
+
+em `order_items`.
+
+Criar índice nessa coluna.
+
+---
+
+# 61. TRANSAÇÕES
+
+A criação definitiva do pedido deverá ser transacional quando possível.
+
+Não permitir cenário:
+
+```text
+pedido criado
+mas
+itens não salvos
+```
+
+ou:
+
+```text
+itens salvos
+mas
+pedido não criado
+```
+
+Se for necessário, implementar operação transacional via PostgreSQL function/RPC.
+
+---
+
+# 62. REALTIME
+
+Não utilizar Supabase Realtime em tudo.
+
+Usar apenas quando houver benefício real, por exemplo:
+
+* status de processamento;
+* atualização de pedidos em múltiplas telas;
+* colaboração futura.
+
+CRUD comum pode funcionar por chamadas normais.
+
+---
+
+# 63. GITHUB
+
+Criar repositório organizado.
+
+Branches:
+
+```text
+main
+develop
+feature/*
+fix/*
+```
+
+Recomendado:
+
+```text
+main = produção
+develop = desenvolvimento
+```
+
+Cada alteração relevante deve ser commitada.
+
+Mensagens de commit:
+
+```text
+feat:
+fix:
+refactor:
+test:
+docs:
+chore:
+```
+
+---
+
+# 64. GITHUB ACTIONS
+
+Criar workflow para:
+
+```text
+npm install
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+Bloquear merge caso os testes falhem.
+
+Criar também workflow para validar migrations Supabase quando possível.
+
+---
+
+# 65. VERCEL
+
+Preparar o projeto para deploy contínuo.
+
+Configurar:
+
+```text
+Production
+Preview
+Development
+```
+
+Variáveis de ambiente:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+```
+
+Nunca colocar:
+
+```text
+service_role
+```
+
+no código cliente.
+
+A aplicação deverá funcionar a partir de:
+
+```text
+https://SEU-PROJETO.vercel.app
+```
+
+O GitHub será o código-fonte.
+
+---
+
+# 66. IMPORTANTE SOBRE “ACESSAR PELO GITHUB”
+
+Não tratar o GitHub como se ele fosse necessariamente o servidor da aplicação.
+
+O fluxo correto será:
+
+```text
+GitHub
+   ↓
+Vercel
+   ↓
+Aplicação Web
+   ↓
+Supabase
+```
+
+O usuário pode manter o projeto no GitHub, enquanto a URL operacional da aplicação fica na Vercel.
+
+Se houver uma necessidade real de hospedagem estática no GitHub Pages, analisar essa alternativa separadamente, mas não sacrificar recursos da aplicação apenas para utilizar GitHub Pages.
+
+---
+
+# 67. DOCUMENTAÇÃO
+
+Criar README completo com:
+
+```text
+Descrição
+Tecnologias
+Arquitetura
+Pré-requisitos
+Configuração local
+Configuração Supabase
+Configuração GitHub
+Variáveis de ambiente
+Executar localmente
+Executar testes
+Deploy
+Migrations
+Estrutura do banco
+Regras de negócio
+Fluxo de importação
+```
+
+---
+
+# 68. TESTES UNITÁRIOS
+
+Reproduzir as regras descritas no teste original.
+
+Testar:
+
+### Título
+
+Não alterar maiúsculas/minúsculas.
+
+### Contrato
+
+Bolsista deve ser excluído.
+
+### Digitação
+
+Digitação deve ser ignorada.
+
+### Educadores
+
+Nomes cadastrados devem ser ignorados.
+
+### Sanitização
+
+```text
+161869_Windows 11
+```
+
+→
+
+```text
+Windows 11
+```
+
+### Duplicidade
+
+Mesmo aluno + mesma matéria.
+
+### Faixa de aulas
+
+4-6.
+
+### Todas as aulas
+
+Todas as linhas elegíveis.
+
+### Datas
+
+Competência correta.
+
+### Dashboard
+
+KPIs corretos.
+
+---
+
+# 69. TESTES E2E
+
+Criar cenários:
+
+```text
+login
+↓
+dashboard
+↓
+novo pedido
+↓
+upload
+↓
+inspeção
+↓
+exclusão
+↓
+finalização
+↓
+histórico
+↓
+edição
+↓
+restauração
+↓
+exportação
+```
+
+Testar em viewport:
+
+```text
+desktop
+tablet
+mobile
+```
+
+---
+
+# 70. DADOS DE TESTE
+
+Criar `seed.sql` com dados fictícios:
+
+```text
+Microlins Potirendaba
+educadores
+usuário administrador
+usuário operador
+pedidos
+itens
+duplicidades
+```
+
+Não usar dados pessoais reais no seed.
+
+---
+
+# 71. DASHBOARD E KPIs
+
+Implementar:
+
+```text
+Total de pedidos arquivados
+Total de apostilas
+Pedidos do mês
+Pedidos abertos
+```
+
+Adicionar filtros:
+
+```text
+mês
+ano
+educador
+```
+
+Os KPIs devem ser calculados no banco sempre que possível.
+
+Não depender de um estado local antigo.
+
+---
+
+# 72. HISTÓRICO E ORDEM CRONOLÓGICA
+
+Preservar a regra de que pedidos antigos devem ser corretamente posicionados cronologicamente.
+
+Exemplo:
+
+```text
+15/08
+01/09
+```
+
+deve respeitar a ordem cronológica.
+
+Não ordenar datas como strings.
+
+---
+
+# 73. PRESERVAÇÃO DA DATA DE CRIAÇÃO
+
+Na edição:
+
+```text
+created_at
+```
+
+não deve ser alterado.
+
+Atualizar:
+
+```text
+updated_at
+```
+
+Registrar:
+
+```text
+updated_by
+```
+
+---
+
+# 74. ACESSO POR PERFIL
+
+### ADMIN
+
+Pode:
+
+* tudo.
+
+### OPERATOR
+
+Pode:
+
+* criar;
+* importar;
+* editar;
+* arquivar;
+* restaurar;
+* exportar;
+* consultar.
+
+### VIEWER
+
+Pode:
+
+* consultar;
+* visualizar;
+* exportar caso autorizado.
+
+---
+
+# 75. EXPERIÊNCIA DO USUÁRIO
+
+A interface precisa ser claramente superior ao sistema atual.
+
+Evitar aparência de:
+
+* formulário genérico;
+* sistema antigo;
+* dashboard cheio de cards inúteis;
+* tabela confusa.
+
+Criar sensação de:
+
+```text
+sistema administrativo profissional
+```
+
+---
+
+# 76. COMPONENTE DE TABELA
+
+Criar tabela reutilizável com:
+
+* sorting;
+* filtering;
+* pagination;
+* column visibility;
+* row selection;
+* responsive behavior;
+* loading skeleton;
+* empty state.
+
+---
+
+# 77. BUSCA
+
+Histórico deve possuir pesquisa por:
+
+```text
+título
+aluno
+matéria
+educador
+```
+
+A busca deve poder ser realizada no banco.
+
+---
+
+# 78. CONFIRMAÇÕES
+
+Operações destrutivas sempre exigem confirmação.
+
+Exemplo:
+
+```text
+Excluir pedido?
+
+Pedido #023
+“APOSTILAS SETEMBRO”
+
+Esta ação poderá remover definitivamente os registros.
+
+[Cancelar]
+[Excluir]
+```
+
+---
+
+# 79. NOTIFICAÇÕES
+
+Usar toast para:
+
+```text
+Importação concluída
+Pedido salvo
+Pedido arquivado
+Pedido restaurado
+Exportação concluída
+Configuração atualizada
+```
+
+Mensagens de erro devem explicar o problema.
+
+---
+
+# 80. NÃO FAZER
+
+Não:
+
+* migrar literalmente a estrutura de abas;
+* criar uma tabela SQL chamada `_BD_Historico` contendo tudo misturado;
+* criar um “Google Sheets fake”;
+* armazenar todo o banco em JSON;
+* colocar segredo no frontend;
+* desativar RLS para simplificar;
+* colocar regras de negócio apenas no frontend;
+* criar componentes gigantes;
+* fazer consultas ilimitadas;
+* apagar dados silenciosamente;
+* inventar mapeamento de arquivos não documentado.
+
+---
+
+# 81. MIGRAÇÃO CONCEITUAL
+
+Mapeamento:
+
+```text
+Google Sheets
+        ↓
+PostgreSQL/Supabase
+
+Apps Script
+        ↓
+Next.js + Domain Services + Supabase
+
+Dashboard Sheet
+        ↓
+/dashboard
+
+WebApp.html
+        ↓
+Next.js application
+
+Config.js
+        ↓
+unit_settings
+
+ImportProcessor.js
+        ↓
+lib/imports/
+
+DuplicateChecker.js
+        ↓
+lib/duplicates/ + PostgreSQL
+
+OrderManager.js
+        ↓
+orders + order_items + UI
+
+ArchiveManager.js
+        ↓
+orders + audit_logs
+
+ExportService.js
+        ↓
+lib/exports/
+
+Educators Dialog
+        ↓
+/configuracoes/educadores
+```
+
+---
+
+# 82. MIGRAÇÃO SEM PERDER FUNCIONALIDADE
+
+Antes de desenvolver a interface final, crie uma matriz:
+
+| Sistema atual | Nova implementação          | Status |
+| ------------- | --------------------------- | ------ |
+| Dashboard     | `/dashboard`                |        |
+| Novo pedido   | `/nova-ordem`               |        |
+| Importação    | módulo de importação        |        |
+| Duplicidades  | motor de duplicidade        |        |
+| Educadores    | `/configuracoes/educadores` |        |
+| Histórico     | `/historico`                |        |
+| Edição        | `/pedidos/[id]/editar`      |        |
+| Restauração   | serviço de restauração      |        |
+| PDF           | export service              |        |
+| Excel         | export service              |        |
+| Configurações | `/configuracoes`            |        |
+| Auditoria     | `/auditoria`                |        |
+
+Não considerar a migração pronta enquanto funcionalidades essenciais estiverem sem correspondência.
+
+---
+
+# 83. ORDEM DE DESENVOLVIMENTO
+
+Desenvolver em fases.
+
+## FASE 1
+
+Criar projeto:
+
+```text
+Next.js
+TypeScript
+Tailwind
+shadcn/ui
+Supabase
+```
+
+## FASE 2
+
+Criar banco e migrations.
+
+## FASE 3
+
+Criar autenticação.
+
+## FASE 4
+
+Criar regras de negócio.
+
+## FASE 5
+
+Criar importador.
+
+## FASE 6
+
+Criar duplicidade.
+
+## FASE 7
+
+Criar pedidos.
+
+## FASE 8
+
+Criar histórico.
+
+## FASE 9
+
+Criar dashboard.
+
+## FASE 10
+
+Criar exportação.
+
+## FASE 11
+
+Criar configurações.
+
+## FASE 12
+
+Criar auditoria.
+
+## FASE 13
+
+Criar testes.
+
+## FASE 14
+
+Deploy.
+
+---
+
+# 84. FORMA DE EXECUÇÃO DO AGENTE
+
+Não tente construir tudo em um único arquivo ou em uma única etapa cega.
+
+Primeiro:
+
+1. analisar a documentação;
+2. gerar arquitetura;
+3. gerar schema;
+4. gerar migrations;
+5. gerar estrutura do projeto;
+6. implementar domínio;
+7. implementar interface;
+8. testar;
+9. corrigir;
+10. fazer build;
+11. documentar.
+
+A cada fase, verificar se o código compila.
+
+---
+
+# 85. CRITÉRIO DE QUALIDADE
+
+O sistema somente deverá ser considerado concluído quando:
+
+```text
+npm run lint
+```
+
+funcionar.
+
+```text
+npm run typecheck
+```
+
+funcionar.
+
+```text
+npm run test
+```
+
+funcionar.
+
+```text
+npm run build
+```
+
+funcionar.
+
+E os testes E2E principais estiverem passando.
+
+---
+
+# 86. PRINCÍPIO DE SEGURANÇA
+
+Nunca utilizar:
+
+```text
+service_role
+```
+
+no cliente.
+
+Nunca desativar RLS para “fazer funcionar”.
+
+Nunca confiar em autorização apenas no frontend.
+
+Nunca colocar credenciais no GitHub.
+
+Adicionar:
+
+```text
+.env.local
+```
+
+ao `.gitignore`.
+
+Criar:
+
+```text
+.env.example
+```
+
+sem segredos reais.
+
+---
+
+# 87. PRINCÍPIO DE MANUTENIBILIDADE
+
+O sistema deverá permitir futuramente:
+
+* múltiplas unidades;
+* múltiplos usuários;
+* relatórios adicionais;
+* novos tipos de materiais;
+* novos tipos de filtros;
+* novos formatos de importação;
+* integração com outros sistemas.
+
+Evitar código específico demais para uma única tela.
+
+---
+
+# 88. PRINCÍPIO DE COMPATIBILIDADE FUTURA
+
+Sempre que existir uma regra específica da Microlins Potirendaba, isolá-la em configuração quando possível.
+
+Exemplo:
+
+```text
+ignoredSubjects
+excludedContractTypes
+educatorsToIgnore
+lessonRange
+branding
+```
+
+Assim o mesmo software poderá posteriormente atender outra unidade sem reescrever todo o sistema.
+
+---
+
+# 89. RESULTADO ESPERADO
+
+Ao final, o usuário deverá acessar o sistema pelo navegador e encontrar:
+
+```text
+LOGIN
+   ↓
+DASHBOARD
+   ↓
+NOVO PEDIDO
+   ↓
+UPLOAD
+   ↓
+INSPEÇÃO
+   ↓
+DUPLICIDADES
+   ↓
+FINALIZAR
+   ↓
+PEDIDO
+   ↓
+HISTÓRICO
+```
+
+Tudo persistido no Supabase.
+
+Sem depender do Google Sheets.
+
+---
+
+# 90. PRIMEIRA ENTREGA
+
+Antes de gerar todas as telas, entregue primeiro:
+
+### 1. Arquitetura técnica
+
+### 2. Estrutura de pastas
+
+### 3. Modelo de banco
+
+### 4. SQL das migrations
+
+### 5. Políticas RLS
+
+### 6. Tipos TypeScript
+
+### 7. Estratégia de importação
+
+### 8. Estratégia de duplicidade
+
+### 9. Plano de testes
+
+### 10. Plano de deploy
+
+Depois disso, avance para a implementação.
+
+---
+
+# 91. REGRA FINAL
+
+Prioridade absoluta:
+
+**1. Correção das regras de negócio**
+
+**2. Integridade dos dados**
+
+**3. Segurança**
+
+**4. Facilidade de manutenção**
+
+**5. Experiência do usuário**
+
+**6. Performance**
+
+**7. Estética**
+
+Não sacrifique uma regra de negócio para deixar a interface mais bonita.
+
+Não sacrifique segurança para simplificar o código.
+
+Não sacrifique integridade dos dados para acelerar o desenvolvimento.
+
+---
+
+# 92. IMPORTANTE SOBRE A DOCUMENTAÇÃO
+
+Os arquivos fornecidos documentam muito bem o comportamento do sistema atual, porém não apresentam todos os detalhes dos arquivos Excel reais de entrada nem todo o código-fonte original.
+
+Portanto:
+
+* utilize a documentação como especificação funcional;
+* não invente mapeamentos de colunas;
+* crie uma camada adaptável de importação;
+* identifique explicitamente qualquer informação necessária que não esteja disponível;
+* quando o código-fonte original estiver disponível no repositório, utilize-o para recuperar regras que não estejam completamente descritas na documentação.
+
+---
+
+# 93. ENTREGA FINAL
+
+Ao terminar, fornecer:
+
+```text
+URL do repositório GitHub
+URL da aplicação publicada
+URL do Supabase
+instruções de instalação
+instruções de desenvolvimento
+credenciais/configuração que o administrador precisa fornecer
+estrutura do banco
+documentação das regras
+documentação dos testes
+```
+
+Nunca colocar senhas reais na documentação ou no código.
+
+O resultado final deve ser uma aplicação web profissional, totalmente funcional, persistente, segura e independente do Google Sheets, mantendo o comportamento essencial do sistema atual de Gestão de Apostilas da Microlins Potirendaba.

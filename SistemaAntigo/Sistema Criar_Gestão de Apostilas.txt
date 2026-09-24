@@ -1,0 +1,48 @@
+Gestão de Apostilas
+Problema enfrentado: Pedidos de apostila sendo repetidos para o mesmo aluno.
+Solução esperada: Um sistema capaz de identificar pedidos repetidos nos novos pedidos de materiais. Toda vez que a elaboração de uma lista de materiais for realizada, o sistema deverá apontar se há nomes de alunos iguais e com o mesmo material, exemplo:
+
+1º Pedido de Agosto:
+Malone de Souza - Windows
+...
+
+
+2º Pedido de Agosto:
+Malone de Souza - Windows (Mesma apostila, deverá sinalizar repetição no pedido de 1º de Agosto)
+
+
+O sistema pode ser feito em HTML, CSS, modulado para melhor desenvolvimento, não single-file, pois sofrerá diversas atualizações conforme necessidade. O sistema será feito no Google Sheets e funcional através da extensão Apps Scripts.
+
+Deverá haver um botão de preparar planilha, onde deverá conter título ENTREGA DE MATERIAL - PEDIDO TAL (editável)
+
+Colunas: Aluno, Matéria, Educador, Data, Entrega, Liberação.
+Depois irei ver a quantidade de espaçamento nas colunas de cada coluna, mas isso somente após a criação e irei passar para você atualizar os números.
+
+
+
+Como o usuário vai usar o sistema:
+Surge a necessidade de realizar um pedido de material.
+O usuário exporta uma planilha do Excel através do sistema de gestão interno da empresa, essa planilha contém muitas informações, colunas, dados enxutos. Ele aplica os seguintes filtros:
+- Status Contrato: Ativo
+- Inadimplente: Não
+- Entrega Física: Não
+- Aula Atual: Entre 4 e 6
+- Tipo de Contrato: Não Incluir Bolsista
+
+Dessa forma o usuário exporta a planilha, importa esta no sistema que será criado.
+Quais coluna será preenchido e de que forma? Na seguinte ordem:
+Aluno			Matéria			Educador	Data		Entrega		Liberação
+Malone de Souza		161869_Windows 11	Andrey						
+
+Observe o código "161869_", toda matéria terá esse código, seria interessante removê-lo e deixar apenas o nome da matéria.
+Depois que o usuário tiver a planilha pronta, ele poderá exportar para PDF ou Excel, já com o nome do arquivo de acordo com o título dado no cabeçalho da tabela. Pode estar, exemplo: ENTREGA DE MATERIAL - 1º PEDIDO SETEMBRO
+
+Depois eu gostaria que tivesse uma opção de arquivar pedido, ao invés de Ocultar Planilha. De que forma poderia isso ser feito? Codificar as informações em uma tabela oculta e decodificar quando o usuário quiser abrir, visualizar uma tabela criada previamente? O que seria melhor e possível dentro do Google Sheets.
+
+Se caso apenas o Google Sheets fosse muito limitado, poderia também usar HTML, CSS lá no Apps Script para gerar uma página também com funcionalidades eficientes.
+
+
+
+
+
+

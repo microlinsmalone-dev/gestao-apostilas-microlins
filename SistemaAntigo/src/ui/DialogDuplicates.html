@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('ui/Styles'); ?>
+</head>
+<body>
+  <div class="container">
+    <div class="modal-header">
+      <h2>Duplicidades Identificadas</h2>
+      <span class="badge badge-danger"><?= duplicidades.length ?> ocorrência(s)</span>
+    </div>
+
+    <p style="color: var(--text-secondary); margin-bottom: 12px; font-size: 12px;">
+      Registros em duplicidade identificados na folha atual ou em pedidos arquivados anteriormente.
+      Desmarque os itens que deseja manter ou remova os selecionados:
+    </p>
+
+    <div class="table-container" style="max-height: 290px;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 35px; text-align: center;">
+              <input type="checkbox" id="check-all" checked onchange="toggleSelectAll(this)">
+            </th>
+            <th style="width: 50px;">Linha</th>
+            <th style="width: 35%;">Aluno</th>
+            <th style="width: 30%;">Matéria</th>
+            <th>Origem</th>
+          </tr>
+        </thead>
+        <tbody>
+          <? for (let i = 0; i < duplicidades.length; i++) { 
+               const dup = duplicidades[i];
+          ?>
+            <tr>
+              <td style="text-align: center;">
+                <input type="checkbox" class="dup-check" value="<?= dup.linha ?>" checked>
+              </td>
+              <td><b>#<?= dup.linha ?></b></td>
+              <td><b><?= dup.aluno ?></b></td>
+              <td><?= dup.materia ?></td>
+              <td>
+                <? if (dup.tipo === 'interno') { ?>
+                  <span class="badge badge-warning">Mesmo Pedido</span> <?= dup.origem ?>
+                <? } else { ?>
+                  <span class="badge badge-danger">Histórico</span> <?= dup.origem ?> (<?= dup.dataOrigem ?>)
+                <? } ?>
+              </td>
+            </tr>
+          <? } ?>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-secondary" onclick="google.script.host.close()">Manter Registros</button>
+      <button class="btn btn-danger" onclick="removerSelecionados()">Remover Selecionados da Folha</button>
+    </div>
+
+    <div class="loading-overlay" id="loading">
+      <div class="spinner"></div>
+      <div style="font-weight: 600; color: var(--primary);">Atualizando folha de pedido...</div>
+    </div>
+  </div>
+
+  <script>
+    function toggleSelectAll(master) {
+      document.querySelectorAll('.dup-check').forEach(cb => cb.checked = master.checked);
+    }
+
+    function removerSelecionados() {
+      const checkboxes = document.querySelectorAll('.dup-check:checked');
+      const linhas = Array.from(checkboxes).map(cb => parseInt(cb.value, 10));
+
+      if (linhas.length === 0) {
+        alert('Nenhuma linha selecionada para remoção.');
+        return;
+      }
+
+      if (confirm(`Deseja remover as ${linhas.length} linha(s) selecionada(s) da planilha?`)) {
+        document.getElementById('loading').style.display = 'flex';
+        google.script.run
+          .withSuccessHandler(() => {
+            google.script.host.close();
+          })
+          .withFailureHandler((err) => {
+            document.getElementById('loading').style.display = 'none';
+            alert('Erro ao remover linhas: ' + err.message);
+          })
+          .removerLinhasDuplicadasDaFolha(linhas);
+      }
+    }
+  </script>
+</body>
+</html>
