@@ -264,7 +264,6 @@ export default function DashboardPage() {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50/75 text-slate-600 border-b border-slate-100 uppercase tracking-wider font-semibold">
                 <tr>
-                  <th className="py-3 px-4">Nº Ordem</th>
                   <th className="py-3 px-4">Título do Pedido</th>
                   <th className="py-3 px-4">Competência</th>
                   <th className="py-3 px-4 text-center">Itens</th>
@@ -275,9 +274,6 @@ export default function DashboardPage() {
               <tbody className="divide-y divide-slate-100">
                 {recentOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-[#0f3b7d]">
-                      {order.order_number}
-                    </td>
                     <td className="py-3 px-4 font-medium text-slate-900">
                       {order.title}
                     </td>

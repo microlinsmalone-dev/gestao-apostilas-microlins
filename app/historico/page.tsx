@@ -318,7 +318,7 @@ function HistoricoContent() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Pesquisar por título ou #ordem..."
+              placeholder="Pesquisar por título do pedido..."
               className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
             />
           </div>
@@ -345,7 +345,6 @@ function HistoricoContent() {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider">
                 <tr>
-                  <th className="py-3 px-4">Nº Ordem</th>
                   <th className="py-3 px-4">Título do Pedido</th>
                   <th className="py-3 px-4">Competência</th>
                   <th className="py-3 px-4 text-center">Apostilas</th>
@@ -356,7 +355,6 @@ function HistoricoContent() {
               <tbody className="divide-y divide-slate-100">
                 {filteredOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-[#0f3b7d]">{order.order_number}</td>
                     <td className="py-3 px-4 font-semibold text-slate-900">{order.title}</td>
                     <td className="py-3 px-4 text-slate-600">
                       {order.competence_month}/{order.competence_year}
@@ -413,9 +411,6 @@ function HistoricoContent() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-3">
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-mono text-sm font-bold text-[#0f3b7d]">
-                  {activeOrder.order_number}
-                </span>
                 {isEditing ? (
                   <input
                     type="text"
