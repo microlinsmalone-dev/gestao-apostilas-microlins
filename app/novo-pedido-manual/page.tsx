@@ -16,7 +16,9 @@ import {
   History,
   Lock,
   UserCheck,
-  CheckCircle2
+  ChevronDown,
+  Check,
+  Search
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
 import { cleanSubject, normalizeText, formatOrderTitle } from '../../lib/domain/sanitizer';
@@ -40,16 +42,17 @@ export default function NovoPedidoManualPage() {
   const router = useRouter();
   const { showAlert, showConfirm, showToast } = useDialog();
 
-  // Dados do Cabeçalho do Pedido
-  const [orderNumber, setOrderNumber] = useState('#001');
-  const [sequenceNum, setSequenceNum] = useState(1);
-  const [title, setTitle] = useState('ENTREGA DE MATERIAL - PEDIDO #001');
+  // Dados do Cabeçalho do Pedido (sem campo manual de Nº da Ordem)
+  const [title, setTitle] = useState('ENTREGA DE MATERIAL - HISTÓRICO');
   const [competenceMonth, setCompetenceMonth] = useState(new Date().getMonth() + 1);
   const [competenceYear, setCompetenceYear] = useState(new Date().getFullYear());
   
-  // Educador único por lista
+  // Educador único por lista (sem preenchimento automático)
   const [selectedEducator, setSelectedEducator] = useState('');
   const [educators, setEducators] = useState<Educator[]>([]);
+  const [isEducatorDropdownOpen, setIsEducatorDropdownOpen] = useState(false);
+  const [educatorSearch, setEducatorSearch] = useState('');
+  const educatorDropdownRef = useRef<HTMLDivElement | null>(null);
 
   // Linhas da Tabela (apenas Aluno e Matéria)
   const [rows, setRows] = useState<ManualRow[]>([
@@ -68,32 +71,31 @@ export default function NovoPedidoManualPage() {
   const [pasteContent, setPasteContent] = useState('');
 
   // Loading & Salvamento
-  const [isLoadingSeq, setIsLoadingSeq] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
   // Referência para focar no novo input criado
   const lastRowInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Carrega próximo número sequencial, educadores e histórico
+  // Fecha dropdown do educador ao clicar fora
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        educatorDropdownRef.current &&
+        !educatorDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsEducatorDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Carrega educadores ativos e histórico (sem auto-preencher educador)
   const loadInitialData = async () => {
     try {
-      setIsLoadingSeq(true);
-      const unitId = process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-
-      // 1. Obtém próxima sequência
-      const { data: seqData, error: seqErr } = await supabase.rpc('get_next_order_sequence', {
-        p_unit_id: unitId,
-      });
-
-      if (!seqErr && seqData && seqData[0]) {
-        const nextSeq = seqData[0].next_seq || 1;
-        const nextNum = seqData[0].next_number || `#${String(nextSeq).padStart(3, '0')}`;
-        setSequenceNum(nextSeq);
-        setOrderNumber(nextNum);
-        setTitle(`ENTREGA DE MATERIAL - PEDIDO ${nextNum}`);
-      }
-
-      // 2. Busca educadores ativos
+      // 1. Busca educadores ativos
       const { data: edData } = await supabase
         .from('educators')
         .select('*')
@@ -102,10 +104,10 @@ export default function NovoPedidoManualPage() {
 
       if (edData && edData.length > 0) {
         setEducators(edData);
-        setSelectedEducator(edData[0].name);
+        // IMPORTANTE: NÃO preenche automaticamente o educador para forçar a escolha consciente do operador
       }
 
-      // 3. Busca itens já cadastrados no histórico para aviso de duplicidades
+      // 2. Busca itens já cadastrados no histórico para aviso de duplicidades
       const { data: existingItems } = await supabase
         .from('order_items')
         .select('duplicate_fingerprint, orders(title)');
@@ -121,8 +123,6 @@ export default function NovoPedidoManualPage() {
       }
     } catch (err) {
       console.warn('Erro ao carregar dados iniciais:', err);
-    } finally {
-      setIsLoadingSeq(false);
     }
   };
 
@@ -195,7 +195,6 @@ export default function NovoPedidoManualPage() {
       if (index === rows.length - 1) {
         handleAddRow();
       } else {
-        // Foca no aluno da próxima linha
         const nextInput = document.getElementById(`student-input-${index + 1}`) as HTMLInputElement | null;
         if (nextInput) nextInput.focus();
       }
@@ -223,7 +222,6 @@ export default function NovoPedidoManualPage() {
 
     lines.forEach((line) => {
       if (!line.trim()) return;
-      // Suporta separação por Tab (Excel), ponto-e-vírgula ou vírgula
       let cols = line.split('\t');
       if (cols.length === 1 && line.includes(';')) {
         cols = line.split(';');
@@ -291,7 +289,7 @@ export default function NovoPedidoManualPage() {
   const handleSaveOrder = async (redirectAfterSave: boolean) => {
     if (!selectedEducator.trim()) {
       showAlert(
-        'Por favor, selecione ou informe o Educador desta lista antes de salvar.',
+        'Por favor, selecione o Educador desta lista antes de salvar.',
         'warning',
         'Educador Obrigatório'
       );
@@ -312,16 +310,24 @@ export default function NovoPedidoManualPage() {
     try {
       setIsSaving(true);
       const unitId = process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-      const cleanTitleStr = formatOrderTitle(title, `ENTREGA DE MATERIAL - PEDIDO ${orderNumber}`);
       const competenceDateStr = `${competenceYear}-${String(competenceMonth).padStart(2, '0')}-01`;
 
-      // 1. Grava o Pedido (Status fixo como Archived para listas impressas já realizadas)
+      // 1. Obtém próxima sequência automaticamente no banco de dados (o usuário não precisa preencher)
+      const { data: seqData } = await supabase.rpc('get_next_order_sequence', {
+        p_unit_id: unitId,
+      });
+
+      const nextSeq = seqData?.[0]?.next_seq || 1;
+      const orderNum = seqData?.[0]?.next_number || `#${String(nextSeq).padStart(3, '0')}`;
+      const cleanTitleStr = formatOrderTitle(title, `ENTREGA DE MATERIAL - HISTÓRICO ${orderNum}`);
+
+      // 2. Grava o Pedido
       const { data: newOrder, error: orderErr } = await supabase
         .from('orders')
         .insert({
           unit_id: unitId,
-          order_number: orderNumber.trim(),
-          sequence_num: sequenceNum,
+          order_number: orderNum,
+          sequence_num: nextSeq,
           title: cleanTitleStr,
           status: 'archived',
           competence_month: Number(competenceMonth),
@@ -335,7 +341,7 @@ export default function NovoPedidoManualPage() {
 
       if (orderErr) throw orderErr;
 
-      // 2. Grava os Itens do Pedido com o Educador da lista e Liberação automática
+      // 3. Grava os Itens do Pedido com o Educador da lista e Liberação automática
       const itemsToInsert = validRows.map((row, idx) => {
         const fp = createDuplicateFingerprint(row.studentName, row.subjectName);
         const isHistorical = historicalMap.has(fp);
@@ -372,17 +378,13 @@ export default function NovoPedidoManualPage() {
       const { error: itemsErr } = await supabase.from('order_items').insert(itemsToInsert);
       if (itemsErr) throw itemsErr;
 
-      showToast(`Pedido ${orderNumber} salvo com sucesso no histórico com ${validRows.length} itens!`, 'success');
+      showToast(`Lista de ${validRows.length} apostilas salva com sucesso no histórico!`, 'success');
 
       if (redirectAfterSave) {
         router.push('/historico');
       } else {
         // Prepara tela para digitar a próxima lista impressa
-        const nextSeq = sequenceNum + 1;
-        const nextNum = `#${String(nextSeq).padStart(3, '0')}`;
-        setSequenceNum(nextSeq);
-        setOrderNumber(nextNum);
-        setTitle(`ENTREGA DE MATERIAL - PEDIDO ${nextNum}`);
+        setSelectedEducator(''); // Limpa o educador para a próxima lista
         setRows([
           DEFAULT_ROW(),
           DEFAULT_ROW(),
@@ -391,7 +393,7 @@ export default function NovoPedidoManualPage() {
           DEFAULT_ROW(),
         ]);
 
-        // Atualiza mapa de duplicidades local com os itens recém-inseridos
+        // Atualiza mapa de duplicidades local
         validRows.forEach((r) => {
           const fp = createDuplicateFingerprint(r.studentName, r.subjectName);
           historicalMap.set(fp, cleanTitleStr);
@@ -407,7 +409,7 @@ export default function NovoPedidoManualPage() {
     } catch (err: any) {
       console.error('Erro ao salvar pedido manual:', err);
       showAlert(
-        `Falha ao salvar no banco de dados:\n${err.message || 'Verifique se o número de ordem já existe ou suas políticas RLS.'}`,
+        `Falha ao salvar no banco de dados:\n${err.message || 'Verifique sua conexão ou políticas RLS.'}`,
         'error',
         'Erro ao Salvar'
       );
@@ -417,16 +419,12 @@ export default function NovoPedidoManualPage() {
   };
 
   const validCount = rows.filter((r) => r.studentName.trim() && r.subjectName.trim()).length;
+  const filteredEducators = educators.filter((ed) =>
+    ed.name.toLowerCase().includes(educatorSearch.toLowerCase())
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
-      {/* Datalist para autocomplete de Educador se preferir digitar */}
-      <datalist id="educators-list">
-        {educators.map((ed) => (
-          <option key={ed.id} value={ed.name} />
-        ))}
-      </datalist>
-
       {/* Cabeçalho da Página */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
@@ -465,7 +463,7 @@ export default function NovoPedidoManualPage() {
         </div>
       </div>
 
-      {/* Cartão de Informações da Lista (Educador Único + Dados Bloqueados) */}
+      {/* Cartão de Informações da Lista (Educador Único com Caixinha Personalizada) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -473,58 +471,109 @@ export default function NovoPedidoManualPage() {
             Cabeçalho da Folha Impressa
           </h2>
           <span className="text-xs text-slate-400">
-            {isLoadingSeq ? 'Carregando numeração...' : `Identificador sugerido: ${orderNumber}`}
+            Preenchimento simplificado e direto
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 text-xs">
-          {/* Nº da Ordem */}
-          <div className="md:col-span-2">
-            <label className="block font-semibold text-slate-700 mb-1">
-              Nº da Ordem
-            </label>
-            <input
-              type="text"
-              value={orderNumber}
-              onChange={(e) => {
-                const val = e.target.value;
-                setOrderNumber(val);
-                setTitle(`ENTREGA DE MATERIAL - PEDIDO ${val}`);
-              }}
-              placeholder="#001"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono font-bold text-[#0f3b7d] focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
-            />
-          </div>
-
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 text-xs">
           {/* Título do Pedido */}
-          <div className="md:col-span-4">
+          <div className="md:col-span-5">
             <label className="block font-semibold text-slate-700 mb-1">
               Título do Pedido
             </label>
             <input
               type="text"
+              autoComplete="off"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="ENTREGA DE MATERIAL - PEDIDO #001"
+              placeholder="ENTREGA DE MATERIAL - HISTÓRICO"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
             />
           </div>
 
-          {/* Educador da Lista (Único para todas as apostilas) */}
-          <div className="md:col-span-3">
+          {/* Educador da Lista (Caixinha Personalizada do Sistema) */}
+          <div className="md:col-span-4" ref={educatorDropdownRef}>
             <label className="block font-semibold text-[#0f3b7d] mb-1 flex items-center gap-1">
               <UserCheck className="w-3.5 h-3.5" />
               Educador desta Lista *
             </label>
             <div className="relative">
-              <input
-                type="text"
-                list="educators-list"
-                value={selectedEducator}
-                onChange={(e) => setSelectedEducator(e.target.value)}
-                placeholder="Selecione o educador..."
-                className="w-full px-3 py-2 border-2 border-[#0f3b7d]/30 focus:border-[#0f3b7d] rounded-lg font-semibold text-slate-900 bg-blue-50/20 focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]/20"
-              />
+              {/* Botão seletor personalizado */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEducatorDropdownOpen((prev) => !prev);
+                  setEducatorSearch('');
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left text-xs font-semibold transition-all ${
+                  selectedEducator
+                    ? 'border-[#0f3b7d] bg-blue-50/40 text-slate-900 shadow-sm'
+                    : 'border-slate-300 bg-white text-slate-400 hover:border-slate-400'
+                }`}
+              >
+                <span className="truncate">
+                  {selectedEducator || 'Selecione o educador...'}
+                </span>
+                <ChevronDown
+                  className={`w-4 h-4 text-slate-400 transition-transform ${
+                    isEducatorDropdownOpen ? 'rotate-180 text-[#0f3b7d]' : ''
+                  }`}
+                />
+              </button>
+
+              {/* Menu suspenso personalizado (Card Branco do Sistema) */}
+              {isEducatorDropdownOpen && (
+                <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl border border-slate-200 shadow-2xl z-50 py-2 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                  {/* Busca rápida se houver mais de 4 educadores */}
+                  {educators.length > 4 && (
+                    <div className="px-3 pb-2 border-b border-slate-100">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                        <input
+                          type="text"
+                          autoComplete="off"
+                          value={educatorSearch}
+                          onChange={(e) => setEducatorSearch(e.target.value)}
+                          placeholder="Buscar educador..."
+                          className="w-full pl-8 pr-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="max-h-56 overflow-y-auto divide-y divide-slate-50">
+                    {filteredEducators.length === 0 ? (
+                      <div className="px-4 py-3 text-slate-400 text-xs italic text-center">
+                        Nenhum educador encontrado
+                      </div>
+                    ) : (
+                      filteredEducators.map((ed) => {
+                        const isSelected = selectedEducator === ed.name;
+                        return (
+                          <button
+                            key={ed.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedEducator(ed.name);
+                              setIsEducatorDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-3.5 py-2 text-xs text-left transition-colors ${
+                              isSelected
+                                ? 'bg-blue-50 text-[#0f3b7d] font-bold'
+                                : 'text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>{ed.name}</span>
+                            {isSelected && (
+                              <Check className="w-3.5 h-3.5 text-[#0f3b7d] shrink-0" />
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -547,6 +596,7 @@ export default function NovoPedidoManualPage() {
               </select>
               <input
                 type="number"
+                autoComplete="off"
                 value={competenceYear}
                 onChange={(e) => setCompetenceYear(Number(e.target.value))}
                 className="w-1/2 px-2.5 py-2 border border-slate-300 rounded-lg text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
@@ -657,6 +707,7 @@ export default function NovoPedidoManualPage() {
                           id={`student-input-${index}`}
                           ref={isLast ? lastRowInputRef : undefined}
                           type="text"
+                          autoComplete="off"
                           value={row.studentName}
                           onChange={(e) => handleRowChange(row.id, 'studentName', e.target.value)}
                           onKeyDown={(e) => handleStudentKeyDown(e, index)}
@@ -677,6 +728,7 @@ export default function NovoPedidoManualPage() {
                       <input
                         id={`subject-input-${index}`}
                         type="text"
+                        autoComplete="off"
                         value={row.subjectName}
                         onChange={(e) => handleRowChange(row.id, 'subjectName', e.target.value)}
                         onBlur={(e) => handleSubjectBlur(row.id, e.target.value)}
