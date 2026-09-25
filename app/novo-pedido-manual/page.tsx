@@ -170,21 +170,22 @@ export default function NovoPedidoManualPage() {
     }
   };
 
-  // Atualiza campo de uma linha
+  // Atualiza campo de uma linha sem truncar espaços durante a digitação
   const handleRowChange = (id: string, field: 'studentName' | 'subjectName', value: string) => {
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
-
-        if (field === 'subjectName') {
-          // Higienização automática ao digitar ou colar matéria
-          const cleaned = cleanSubject(value);
-          return { ...row, [field]: cleaned };
-        }
-
         return { ...row, [field]: value };
       })
     );
+  };
+
+  // Higieniza matéria somente ao sair do campo (onBlur) para não travar a digitação de espaços
+  const handleSubjectBlur = (id: string, value: string) => {
+    const cleaned = cleanSubject(value);
+    if (cleaned !== value) {
+      handleRowChange(id, 'subjectName', cleaned);
+    }
   };
 
   // Atalho Enter para ir direto para a próxima linha
@@ -346,12 +347,14 @@ export default function NovoPedidoManualPage() {
             createDuplicateFingerprint(other.studentName, other.subjectName) === fp
         );
 
+        const cleanSubj = cleanSubject(row.subjectName);
+
         return {
           order_id: newOrder.id,
           student_name: row.studentName.trim(),
           student_name_normalized: normalizeText(row.studentName),
-          subject_name: row.subjectName.trim(),
-          subject_name_normalized: normalizeText(cleanSubject(row.subjectName)),
+          subject_name: cleanSubj,
+          subject_name_normalized: normalizeText(cleanSubj),
           raw_subject_name: row.subjectName.trim(),
           educator_name: selectedEducator.trim(),
           delivery_date: competenceDateStr,
@@ -676,6 +679,7 @@ export default function NovoPedidoManualPage() {
                         type="text"
                         value={row.subjectName}
                         onChange={(e) => handleRowChange(row.id, 'subjectName', e.target.value)}
+                        onBlur={(e) => handleSubjectBlur(row.id, e.target.value)}
                         onKeyDown={(e) => handleSubjectKeyDown(e, index)}
                         placeholder="Ex: Windows 11 ou 161869_Windows 11"
                         className="w-full px-3 py-1.5 border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
