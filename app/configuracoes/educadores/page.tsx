@@ -13,8 +13,10 @@ import {
 import { supabase } from '../../../lib/supabase/client';
 import { normalizeText } from '../../../lib/domain/sanitizer';
 import { Educator } from '../../../types';
+import { useDialog } from '../../../components/ui/dialog';
 
 export default function EducadoresPage() {
+  const { showAlert, showConfirm, showToast } = useDialog();
   const [educators, setEducators] = useState<Educator[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -73,9 +75,16 @@ export default function EducadoresPage() {
       }
 
       setNewName('');
+      showToast(`Educador "${clean}" adicionado com sucesso!`, 'success');
       loadEducators();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Erro ao adicionar educador.');
+      const msg = err.message || 'Erro ao adicionar educador.';
+      setErrorMsg(msg);
+      showAlert(
+        `Não foi possível adicionar o educador:\n${msg}`,
+        'error',
+        'Erro ao Salvar'
+      );
     } finally {
       setIsAdding(false);
     }
@@ -89,22 +98,34 @@ export default function EducadoresPage() {
         .eq('id', educator.id);
 
       if (error) throw error;
+      showToast(
+        `Educador "${educator.name}" ${!educator.active ? 'ativado' : 'desativado'}.`,
+        'info'
+      );
       loadEducators();
     } catch (err: any) {
-      alert(`Erro: ${err.message}`);
+      showAlert(`Erro ao atualizar status: ${err.message}`, 'error');
     }
   };
 
-  const handleDeleteEducator = async (id: string, name: string) => {
-    if (!confirm(`Remover educador "${name}" da lista de exclusão?`)) return;
-
-    try {
-      const { error } = await supabase.from('educators').delete().eq('id', id);
-      if (error) throw error;
-      loadEducators();
-    } catch (err: any) {
-      alert(`Erro: ${err.message}`);
-    }
+  const handleDeleteEducator = (id: string, name: string) => {
+    showConfirm({
+      title: 'Excluir Educador',
+      message: `Tem certeza que deseja remover "${name}" da lista de exclusão?`,
+      confirmText: 'Sim, excluir',
+      cancelText: 'Cancelar',
+      type: 'warning',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase.from('educators').delete().eq('id', id);
+          if (error) throw error;
+          showToast(`Educador "${name}" removido com sucesso.`, 'success');
+          loadEducators();
+        } catch (err: any) {
+          showAlert(`Erro ao excluir educador: ${err.message}`, 'error');
+        }
+      },
+    });
   };
 
   const filtered = educators.filter((e) =>

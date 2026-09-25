@@ -3,8 +3,10 @@
 import React, { useState } from 'react';
 import { Sparkles, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { supabase } from '../../../lib/supabase/client';
+import { useDialog } from '../../../components/ui/dialog';
 
 export default function HigienizacaoPage() {
+  const { showAlert } = useDialog();
   const [analyzing, setAnalyzing] = useState(false);
   const [resultMessage, setResultMessage] = useState('');
   const [status, setStatus] = useState<'idle' | 'success' | 'warning'>('idle');
@@ -65,7 +67,7 @@ export default function HigienizacaoPage() {
         );
       }
     } catch (err: any) {
-      alert(`Erro na consolidação: ${err.message}`);
+      showAlert(`Erro na consolidação: ${err.message}`, 'error', 'Falha na Consolidação');
     } finally {
       setAnalyzing(false);
     }

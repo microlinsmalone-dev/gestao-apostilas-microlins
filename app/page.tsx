@@ -87,9 +87,6 @@ export default function DashboardPage() {
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
               Microlins Potirendaba • Gestão de Apostilas
             </h1>
-            <p className="text-blue-100/80 text-sm mt-1 max-w-2xl">
-              Sistema de alta precisão para controle, higienização de matérias, conferência de duplicidades e ciclo de vida de pedidos didáticos.
-            </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <Link

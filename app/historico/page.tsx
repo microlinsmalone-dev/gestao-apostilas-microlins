@@ -21,8 +21,10 @@ import {
 import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase/client';
 import { Order, OrderItem } from '../../types';
+import { useDialog } from '../../components/ui/dialog';
 
 function HistoricoContent() {
+  const { showAlert, showConfirm, showToast } = useDialog();
   const searchParams = useSearchParams();
   const editIdParam = searchParams.get('edit');
 
@@ -116,39 +118,39 @@ function HistoricoContent() {
           .eq('id', item.id);
       }
 
-      alert('Edição salva com sucesso no histórico!');
+      showToast('Edição salva com sucesso no histórico!', 'success');
       setIsEditing(false);
       loadOrders();
     } catch (err: any) {
-      alert(`Erro ao salvar: ${err.message}`);
+      showAlert(`Erro ao salvar: ${err.message}`, 'error');
     } finally {
       setIsSaving(false);
     }
   };
 
   // Exclusão definitiva de pedido com confirmação
-  const handleDeleteOrder = async (order: Order) => {
-    const confirmName = prompt(
-      `Confirmação de exclusão:\nPara apagar definitivamente o pedido "${order.title}" (${order.order_number}), digite EXCLUIR:`
-    );
+  const handleDeleteOrder = (order: Order) => {
+    showConfirm({
+      title: 'Excluir Pedido Definitivamente',
+      message: `Tem certeza que deseja apagar o pedido "${order.title}" (${order.order_number})?\n\nEsta ação excluirá todos os itens vinculados e não poderá ser desfeita.`,
+      confirmText: 'Sim, excluir pedido',
+      cancelText: 'Cancelar',
+      type: 'warning',
+      onConfirm: async () => {
+        try {
+          const { error } = await supabase.from('orders').delete().eq('id', order.id);
+          if (error) throw error;
 
-    if (confirmName?.toUpperCase() !== 'EXCLUIR') {
-      alert('Exclusão cancelada.');
-      return;
-    }
-
-    try {
-      const { error } = await supabase.from('orders').delete().eq('id', order.id);
-      if (error) throw error;
-
-      alert(`Pedido ${order.order_number} excluído com sucesso.`);
-      if (activeOrder?.id === order.id) {
-        setActiveOrder(null);
-      }
-      loadOrders();
-    } catch (err: any) {
-      alert(`Erro ao excluir: ${err.message}`);
-    }
+          showToast(`Pedido ${order.order_number} excluído com sucesso.`, 'success');
+          if (activeOrder?.id === order.id) {
+            setActiveOrder(null);
+          }
+          loadOrders();
+        } catch (err: any) {
+          showAlert(`Erro ao excluir: ${err.message}`, 'error');
+        }
+      },
+    });
   };
 
   // Exportação direta para Excel (.xlsx) usando SheetJS

@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { Sidebar } from '../components/sidebar';
+import { DialogProvider } from '../components/ui/dialog';
 
 export const metadata: Metadata = {
   title: 'Gestão de Apostilas • Microlins Potirendaba',
@@ -15,11 +16,14 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className="flex min-h-screen bg-[#f8fafd]">
-        <Sidebar />
-        <main className="flex-1 flex flex-col min-w-0 overflow-auto">
-          {children}
-        </main>
+        <DialogProvider>
+          <Sidebar />
+          <main className="flex-1 flex flex-col min-w-0 overflow-auto">
+            {children}
+          </main>
+        </DialogProvider>
       </body>
     </html>
   );
 }
+

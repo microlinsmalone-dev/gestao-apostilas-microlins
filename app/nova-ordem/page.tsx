@@ -20,9 +20,11 @@ import { analyzeDuplicates } from '../../lib/domain/duplicates';
 import { formatOrderTitle } from '../../lib/domain/sanitizer';
 import { ProcessedStudentItem } from '../../types';
 import { supabase } from '../../lib/supabase/client';
+import { useDialog } from '../../components/ui/dialog';
 
 export default function NovaOrdemPage() {
   const router = useRouter();
+  const { showAlert, showConfirm, showToast } = useDialog();
 
   // Wizard State
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -170,7 +172,7 @@ export default function NovaOrdemPage() {
   // Finalização e salvamento no Supabase
   const handleFinalizeOrder = async () => {
     if (items.length === 0) {
-      alert('Não há itens válidos para gerar o pedido.');
+      showAlert('Não há itens válidos para gerar o pedido.', 'warning', 'Pedido Vazio');
       return;
     }
 
@@ -233,11 +235,15 @@ export default function NovaOrdemPage() {
       const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
       if (itemsError) throw itemsError;
 
-      alert(`Pedido ${orderNumber} criado com sucesso com ${items.length} apostilas!`);
+      showToast(`Pedido ${orderNumber} criado com sucesso com ${items.length} apostilas!`, 'success');
       router.push('/historico');
     } catch (err: any) {
       console.error('Erro ao finalizar pedido:', err);
-      alert(`Erro ao salvar no banco: ${err.message || 'Verifique o Supabase.'}`);
+      showAlert(
+        `Erro ao salvar no banco:\n${err.message || 'Verifique a conexão ou políticas do Supabase.'}`,
+        'error',
+        'Falha no Pedido'
+      );
     } finally {
       setIsSaving(false);
     }
