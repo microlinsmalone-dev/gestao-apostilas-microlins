@@ -24,7 +24,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -34,6 +34,10 @@ jobs:
 
       - name: Build with Next.js
         run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_DEFAULT_UNIT_ID: ${{ secrets.NEXT_PUBLIC_DEFAULT_UNIT_ID }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
@@ -50,3 +54,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+

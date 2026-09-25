@@ -1,5 +1,7 @@
 'use client';
 
+import { Suspense } from 'react';
+
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -20,7 +22,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase/client';
 import { Order, OrderItem } from '../../types';
 
-export default function HistoricoPage() {
+function HistoricoContent() {
   const searchParams = useSearchParams();
   const editIdParam = searchParams.get('edit');
 
@@ -446,5 +448,13 @@ export default function HistoricoPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function HistoricoPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">Carregando histórico...</div>}>
+      <HistoricoContent />
+    </Suspense>
   );
 }
