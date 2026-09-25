@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   FilePlus,
+  ClipboardList,
   History,
   GraduationCap,
   Settings,
@@ -16,6 +17,7 @@ import {
 const menuItems = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
   { label: 'Novo Pedido', href: '/nova-ordem', icon: FilePlus },
+  { label: 'Pedido Manual', href: '/novo-pedido-manual', icon: ClipboardList },
   { label: 'Histórico', href: '/historico', icon: History },
   { label: 'Educadores', href: '/configuracoes/educadores', icon: GraduationCap },
   { label: 'Configurações', href: '/configuracoes', icon: Settings },

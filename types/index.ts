@@ -87,6 +87,20 @@ export interface DuplicateAnalysisResult {
 }
 
 /**
+ * Item para digitação/entrada manual de pedidos já feitos (listas impressas)
+ */
+export interface ManualOrderItem {
+  id: string; // identificador único temporário no frontend
+  studentName: string;
+  subjectName: string;
+  educatorName: string;
+  deliveryDate: string; // YYYY-MM-DD ou formato ISO
+  deliveryStatus: string; // 'Entregue', 'Pendente', etc.
+  releaseStatus: string; // 'Liberado', 'Pendente', etc.
+  currentLesson?: number;
+}
+
+/**
  * Resumo do Dashboard
  */
 export interface DashboardSummary {

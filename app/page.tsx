@@ -12,7 +12,8 @@ import {
   History,
   GraduationCap,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  ClipboardList
 } from 'lucide-react';
 import { supabase } from '../lib/supabase/client';
 import { Order } from '../types';
@@ -90,11 +91,18 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center gap-3 shrink-0">
             <Link
+              href="/novo-pedido-manual"
+              className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white px-4 py-3 rounded-xl font-semibold text-sm backdrop-blur-sm shadow-sm transition-all transform hover:-translate-y-0.5 active:translate-y-0"
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>Lançamento Manual</span>
+            </Link>
+            <Link
               href="/nova-ordem"
               className="inline-flex items-center gap-2 bg-[#d91a2a] hover:bg-[#b31522] text-white px-5 py-3 rounded-xl font-semibold text-sm shadow-md transition-all transform hover:-translate-y-0.5 active:translate-y-0"
             >
               <PlusCircle className="w-4 h-4" />
-              <span>Novo Pedido</span>
+              <span>Novo Pedido (Excel)</span>
             </Link>
           </div>
         </div>

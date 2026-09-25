@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   Upload,
   FileSpreadsheet,
@@ -13,7 +14,8 @@ import {
   Save,
   RefreshCw,
   Search,
-  BookOpen
+  BookOpen,
+  ClipboardList
 } from 'lucide-react';
 import { parseSpreadsheetBuffer } from '../../lib/importers';
 import { analyzeDuplicates } from '../../lib/domain/duplicates';
@@ -308,6 +310,29 @@ export default function NovaOrdemPage() {
           <span>{errorMessage}</span>
         </div>
       )}
+
+      {/* Banner de Alternância para Pedido Manual */}
+      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-[#0f3b7d] flex items-center justify-center text-white shrink-0 shadow-sm">
+            <ClipboardList className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-xs font-bold text-slate-800">
+              Possui listas impressas de pedidos já feitos para cadastrar?
+            </h3>
+            <p className="text-[11px] text-slate-500">
+              Utilize a digitação manual de histórico com campos de Aluno, Matéria, Educador, Data, Entrega e Liberação.
+            </p>
+          </div>
+        </div>
+        <Link
+          href="/novo-pedido-manual"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0f3b7d] text-white text-xs font-bold hover:bg-[#0a2e68] shadow-sm transition-all shrink-0"
+        >
+          <span>✍️ Lançar Pedido Manual</span>
+        </Link>
+      </div>
 
       {/* ETAPA 1 & 2: Formulário de Entrada & Upload */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

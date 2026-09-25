@@ -236,4 +236,19 @@ describe('4. Adaptador de Importação e Caso Real (Ana Clara)', () => {
     expect(subjects).toContain('Operador de Caixa');
     expect(subjects).not.toContain('Digitação');
   });
+
+  it('deve processar corretamente itens manuais de listas impressas', () => {
+    const rawStudent = '  Carlos Eduardo Lima  ';
+    const rawSubject = '161869_Excel 2021';
+
+    const normalizedStudent = normalizeText(rawStudent);
+    const cleanedSubject = cleanSubject(rawSubject);
+    const normalizedSubject = normalizeText(cleanedSubject);
+    const fp = createDuplicateFingerprint(rawStudent, cleanedSubject);
+
+    expect(normalizedStudent).toBe('carlos eduardo lima');
+    expect(cleanedSubject).toBe('Excel 2021');
+    expect(normalizedSubject).toBe('excel 2021');
+    expect(fp).toBe('carlos eduardo lima|||excel 2021');
+  });
 });

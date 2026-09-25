@@ -43,6 +43,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       profiles: {
         Row: {
@@ -75,6 +76,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       unit_settings: {
         Row: {
@@ -131,6 +133,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       educators: {
         Row: {
@@ -160,6 +163,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       orders: {
         Row: {
@@ -216,6 +220,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       order_items: {
         Row: {
@@ -302,6 +307,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       import_files: {
         Row: {
@@ -346,6 +352,7 @@ export interface Database {
           created_by?: string | null;
           created_at?: string;
         };
+        Relationships: [];
       };
       audit_logs: {
         Row: {
@@ -381,13 +388,23 @@ export interface Database {
           ip_address?: string | null;
           created_at?: string;
         };
+        Relationships: [];
       };
+    };
+    Views: {
+      [_ in never]: never;
     };
     Functions: {
       get_next_order_sequence: {
         Args: { p_unit_id: string };
         Returns: { next_seq: number; next_number: string }[];
       };
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
     };
   };
 }
