@@ -113,17 +113,20 @@ export default function ConfiguracoesPage() {
       setIsSaving(true);
       const { error } = await supabase
         .from('unit_settings')
-        .upsert({
-          unit_id: settings.unit_id,
-          default_lesson_from: settings.default_lesson_from,
-          default_lesson_to: settings.default_lesson_to,
-          ignored_subjects: settings.ignored_subjects,
-          excluded_contract_types: settings.excluded_contract_types,
-          extra_blank_rows: settings.extra_blank_rows,
-          institutional_blue: settings.institutional_blue,
-          institutional_red: settings.institutional_red,
-          updated_at: new Date().toISOString(),
-        });
+        .upsert(
+          {
+            unit_id: settings.unit_id,
+            default_lesson_from: settings.default_lesson_from,
+            default_lesson_to: settings.default_lesson_to,
+            ignored_subjects: settings.ignored_subjects,
+            excluded_contract_types: settings.excluded_contract_types,
+            extra_blank_rows: settings.extra_blank_rows,
+            institutional_blue: settings.institutional_blue,
+            institutional_red: settings.institutional_red,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'unit_id' }
+        );
 
       if (error) throw error;
       setSuccessMsg(true);
