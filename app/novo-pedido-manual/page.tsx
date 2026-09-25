@@ -8,17 +8,15 @@ import {
   Plus,
   Trash2,
   Save,
-  RotateCcw,
-  CheckCircle2,
   AlertTriangle,
   Calendar,
-  FileSpreadsheet,
   ArrowRight,
   ClipboardPaste,
-  HelpCircle,
   X,
   History,
-  Sparkles
+  Lock,
+  UserCheck,
+  CheckCircle2
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
 import { cleanSubject, normalizeText, formatOrderTitle } from '../../lib/domain/sanitizer';
@@ -30,22 +28,12 @@ interface ManualRow {
   id: string;
   studentName: string;
   subjectName: string;
-  educatorName: string;
-  deliveryDate: string; // YYYY-MM-DD
-  deliveryStatus: string;
-  releaseStatus: string;
-  currentLesson: number;
 }
 
 const DEFAULT_ROW = (): ManualRow => ({
   id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
   studentName: '',
   subjectName: '',
-  educatorName: '',
-  deliveryDate: new Date().toISOString().split('T')[0],
-  deliveryStatus: 'Entregue',
-  releaseStatus: 'Liberado',
-  currentLesson: 0,
 });
 
 export default function NovoPedidoManualPage() {
@@ -58,9 +46,12 @@ export default function NovoPedidoManualPage() {
   const [title, setTitle] = useState('ENTREGA DE MATERIAL - PEDIDO #001');
   const [competenceMonth, setCompetenceMonth] = useState(new Date().getMonth() + 1);
   const [competenceYear, setCompetenceYear] = useState(new Date().getFullYear());
-  const [orderStatus, setOrderStatus] = useState<'archived' | 'open'>('archived'); // Listas impressas já foram entregues por padrão
+  
+  // Educador único por lista
+  const [selectedEducator, setSelectedEducator] = useState('');
+  const [educators, setEducators] = useState<Educator[]>([]);
 
-  // Linhas da Tabela
+  // Linhas da Tabela (apenas Aluno e Matéria)
   const [rows, setRows] = useState<ManualRow[]>([
     DEFAULT_ROW(),
     DEFAULT_ROW(),
@@ -69,20 +60,12 @@ export default function NovoPedidoManualPage() {
     DEFAULT_ROW(),
   ]);
 
-  // Lista de Educadores do Supabase
-  const [educators, setEducators] = useState<Educator[]>([]);
-  // Mapa de duplicidades históricas no Supabase: fingerprint -> orderTitle
+  // Mapa de duplicidades históricas: fingerprint -> orderTitle
   const [historicalMap, setHistoricalMap] = useState<Map<string, string>>(new Map());
 
   // Estado do Modal de Colagem Rápida
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [pasteContent, setPasteContent] = useState('');
-
-  // Preenchimento em Massa
-  const [batchDate, setBatchDate] = useState(new Date().toISOString().split('T')[0]);
-  const [batchEducator, setBatchEducator] = useState('');
-  const [batchDeliveryStatus, setBatchDeliveryStatus] = useState('Entregue');
-  const [batchReleaseStatus, setBatchReleaseStatus] = useState('Liberado');
 
   // Loading & Salvamento
   const [isLoadingSeq, setIsLoadingSeq] = useState(true);
@@ -91,7 +74,7 @@ export default function NovoPedidoManualPage() {
   // Referência para focar no novo input criado
   const lastRowInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Carrega próximo número sequencial, educadores e duplicidades do histórico
+  // Carrega próximo número sequencial, educadores e histórico
   const loadInitialData = async () => {
     try {
       setIsLoadingSeq(true);
@@ -110,13 +93,17 @@ export default function NovoPedidoManualPage() {
         setTitle(`ENTREGA DE MATERIAL - PEDIDO ${nextNum}`);
       }
 
-      // 2. Busca lista de educadores ativos
+      // 2. Busca educadores ativos
       const { data: edData } = await supabase
         .from('educators')
         .select('*')
         .eq('active', true)
         .order('name');
-      if (edData) setEducators(edData);
+
+      if (edData && edData.length > 0) {
+        setEducators(edData);
+        setSelectedEducator(edData[0].name);
+      }
 
       // 3. Busca itens já cadastrados no histórico para aviso de duplicidades
       const { data: existingItems } = await supabase
@@ -184,7 +171,7 @@ export default function NovoPedidoManualPage() {
   };
 
   // Atualiza campo de uma linha
-  const handleRowChange = (id: string, field: keyof ManualRow, value: any) => {
+  const handleRowChange = (id: string, field: 'studentName' | 'subjectName', value: string) => {
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
@@ -200,43 +187,30 @@ export default function NovoPedidoManualPage() {
     );
   };
 
-  // Atalho Enter para ir para a próxima linha
-  const handleKeyDown = (e: React.KeyboardEvent, index: number, isLastField: boolean) => {
-    if (e.key === 'Enter' && isLastField) {
+  // Atalho Enter para ir direto para a próxima linha
+  const handleSubjectKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === 'Enter') {
       e.preventDefault();
       if (index === rows.length - 1) {
         handleAddRow();
+      } else {
+        // Foca no aluno da próxima linha
+        const nextInput = document.getElementById(`student-input-${index + 1}`) as HTMLInputElement | null;
+        if (nextInput) nextInput.focus();
       }
     }
   };
 
-  // Aplicar Data em Massa
-  const handleApplyBatchDate = () => {
-    if (!batchDate) return;
-    setRows((prev) => prev.map((r) => ({ ...r, deliveryDate: batchDate })));
-    showToast(`Data "${batchDate}" aplicada a todas as linhas!`, 'success');
+  // Atalho Enter no campo Aluno move para o campo Matéria da mesma linha
+  const handleStudentKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const subjectInput = document.getElementById(`subject-input-${index}`) as HTMLInputElement | null;
+      if (subjectInput) subjectInput.focus();
+    }
   };
 
-  // Aplicar Educador em Massa
-  const handleApplyBatchEducator = () => {
-    if (!batchEducator.trim()) return;
-    setRows((prev) => prev.map((r) => ({ ...r, educatorName: batchEducator.trim() })));
-    showToast(`Educador "${batchEducator}" aplicado a todas as linhas!`, 'success');
-  };
-
-  // Aplicar Status Entrega em Massa
-  const handleApplyBatchDeliveryStatus = () => {
-    setRows((prev) => prev.map((r) => ({ ...r, deliveryStatus: batchDeliveryStatus })));
-    showToast(`Status de entrega "${batchDeliveryStatus}" aplicado a todas as linhas!`, 'success');
-  };
-
-  // Aplicar Status Liberação em Massa
-  const handleApplyBatchReleaseStatus = () => {
-    setRows((prev) => prev.map((r) => ({ ...r, releaseStatus: batchReleaseStatus })));
-    showToast(`Status de liberação "${batchReleaseStatus}" aplicado a todas as linhas!`, 'success');
-  };
-
-  // Processa colagem de texto/planilha
+  // Processa colagem de texto/planilha (apenas Aluno e Matéria)
   const handleProcessPastedText = () => {
     if (!pasteContent.trim()) {
       setShowPasteModal(false);
@@ -248,7 +222,7 @@ export default function NovoPedidoManualPage() {
 
     lines.forEach((line) => {
       if (!line.trim()) return;
-      // Suporta separação por Tab (Excel), vírgula ou ponto-e-vírgula
+      // Suporta separação por Tab (Excel), ponto-e-vírgula ou vírgula
       let cols = line.split('\t');
       if (cols.length === 1 && line.includes(';')) {
         cols = line.split(';');
@@ -256,34 +230,24 @@ export default function NovoPedidoManualPage() {
 
       const student = cols[0]?.trim() || '';
       const subject = cleanSubject(cols[1]?.trim() || '');
-      const educator = cols[2]?.trim() || '';
-      const date = cols[3]?.trim() || new Date().toISOString().split('T')[0];
-      const delivery = cols[4]?.trim() || 'Entregue';
-      const release = cols[5]?.trim() || 'Liberado';
 
       if (student || subject) {
         parsedRows.push({
           id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
           studentName: student,
           subjectName: subject,
-          educatorName: educator,
-          deliveryDate: date.includes('/') ? date.split('/').reverse().join('-') : date,
-          deliveryStatus: delivery,
-          releaseStatus: release,
-          currentLesson: 0,
         });
       }
     });
 
     if (parsedRows.length > 0) {
-      // Se a tabela atual só tiver linhas vazias, substitui
       const hasContent = rows.some((r) => r.studentName.trim() || r.subjectName.trim());
       if (!hasContent) {
         setRows(parsedRows);
       } else {
         setRows((prev) => [...prev, ...parsedRows]);
       }
-      showToast(`${parsedRows.length} linhas coladas e importadas com sucesso!`, 'success');
+      showToast(`${parsedRows.length} alunos e matérias importados com sucesso!`, 'success');
     }
 
     setPasteContent('');
@@ -315,7 +279,7 @@ export default function NovoPedidoManualPage() {
     if (internalIndex !== -1 && internalIndex < index) {
       return {
         type: 'internal',
-        message: `Repetido na linha ${internalIndex + 1} deste mesmo pedido`,
+        message: `Repetido na linha ${internalIndex + 1} desta mesma lista`,
       };
     }
 
@@ -324,14 +288,22 @@ export default function NovoPedidoManualPage() {
 
   // Salvar pedido no Supabase
   const handleSaveOrder = async (redirectAfterSave: boolean) => {
-    // Valida se há pelo menos um item preenchido
+    if (!selectedEducator.trim()) {
+      showAlert(
+        'Por favor, selecione ou informe o Educador desta lista antes de salvar.',
+        'warning',
+        'Educador Obrigatório'
+      );
+      return;
+    }
+
     const validRows = rows.filter((r) => r.studentName.trim() && r.subjectName.trim());
 
     if (validRows.length === 0) {
       showAlert(
         'Preencha pelo menos o Nome do Aluno e a Matéria em uma das linhas antes de salvar.',
         'warning',
-        'Pedido Incompleto'
+        'Lista Vazia'
       );
       return;
     }
@@ -340,8 +312,9 @@ export default function NovoPedidoManualPage() {
       setIsSaving(true);
       const unitId = process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
       const cleanTitleStr = formatOrderTitle(title, `ENTREGA DE MATERIAL - PEDIDO ${orderNumber}`);
+      const competenceDateStr = `${competenceYear}-${String(competenceMonth).padStart(2, '0')}-01`;
 
-      // 1. Grava o Pedido
+      // 1. Grava o Pedido (Status fixo como Archived para listas impressas já realizadas)
       const { data: newOrder, error: orderErr } = await supabase
         .from('orders')
         .insert({
@@ -349,25 +322,24 @@ export default function NovoPedidoManualPage() {
           order_number: orderNumber.trim(),
           sequence_num: sequenceNum,
           title: cleanTitleStr,
-          status: orderStatus,
+          status: 'archived',
           competence_month: Number(competenceMonth),
           competence_year: Number(competenceYear),
-          competence_date: `${competenceYear}-${String(competenceMonth).padStart(2, '0')}-01`,
+          competence_date: competenceDateStr,
           total_items: validRows.length,
-          archived_at: orderStatus === 'archived' ? new Date().toISOString() : null,
+          archived_at: new Date().toISOString(),
         })
         .select()
         .single();
 
       if (orderErr) throw orderErr;
 
-      // 2. Grava os Itens do Pedido
+      // 2. Grava os Itens do Pedido com o Educador da lista e Liberação automática
       const itemsToInsert = validRows.map((row, idx) => {
         const fp = createDuplicateFingerprint(row.studentName, row.subjectName);
         const isHistorical = historicalMap.has(fp);
         const matchTitle = isHistorical ? historicalMap.get(fp) : null;
 
-        // Verifica duplicidade interna
         const isInternal = validRows.some(
           (other, otherIdx) =>
             otherIdx < idx &&
@@ -381,11 +353,11 @@ export default function NovoPedidoManualPage() {
           subject_name: row.subjectName.trim(),
           subject_name_normalized: normalizeText(cleanSubject(row.subjectName)),
           raw_subject_name: row.subjectName.trim(),
-          educator_name: row.educatorName.trim() || null,
-          delivery_date: row.deliveryDate || null,
-          delivery_status: row.deliveryStatus || 'Entregue',
-          release_status: row.releaseStatus || 'Liberado',
-          current_lesson: Number(row.currentLesson) || 0,
+          educator_name: selectedEducator.trim(),
+          delivery_date: competenceDateStr,
+          delivery_status: 'Entregue',
+          release_status: 'Liberado',
+          current_lesson: 0,
           duplicate_fingerprint: fp,
           is_internal_duplicate: isInternal,
           is_historical_duplicate: isHistorical,
@@ -422,8 +394,12 @@ export default function NovoPedidoManualPage() {
           historicalMap.set(fp, cleanTitleStr);
         });
 
-        // Foca no topo
+        // Foca no topo da tabela
         window.scrollTo({ top: 0, behavior: 'smooth' });
+        setTimeout(() => {
+          const firstInput = document.getElementById('student-input-0') as HTMLInputElement | null;
+          if (firstInput) firstInput.focus();
+        }, 100);
       }
     } catch (err: any) {
       console.error('Erro ao salvar pedido manual:', err);
@@ -440,8 +416,8 @@ export default function NovoPedidoManualPage() {
   const validCount = rows.filter((r) => r.studentName.trim() && r.subjectName.trim()).length;
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl mx-auto w-full">
-      {/* Datalist para autocomplete dos Educadores */}
+    <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
+      {/* Datalist para autocomplete de Educador se preferir digitar */}
       <datalist id="educators-list">
         {educators.map((ed) => (
           <option key={ed.id} value={ed.name} />
@@ -454,15 +430,15 @@ export default function NovoPedidoManualPage() {
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#0f3b7d]/10 text-[#0f3b7d] border border-[#0f3b7d]/20">
               <ClipboardList className="w-3.5 h-3.5 mr-1" />
-              Lançamento Manual
+              Lançamento Rápido
             </span>
-            <span className="text-xs text-slate-400">• Alimentação de Histórico</span>
+            <span className="text-xs text-slate-400">• Digitação Focada (Aluno + Matéria)</span>
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mt-1">
             Cadastrar Pedido Manualmente (Listas Impressas)
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Insira os dados das folhas físicas antigas (Aluno, Matéria, Educador, Data, Entrega e Liberação) diretamente na base do sistema.
+            Defina o Educador e Competência da folha no topo e digite apenas o Aluno e a Matéria na tabela.
           </p>
         </div>
 
@@ -478,7 +454,7 @@ export default function NovoPedidoManualPage() {
             type="button"
             onClick={() => setShowPasteModal(true)}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-300 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors"
-            title="Copiar e colar várias linhas de uma vez"
+            title="Copiar e colar lista de alunos e matérias"
           >
             <ClipboardPaste className="w-4 h-4 text-emerald-600" />
             <span>Colar do Excel / Texto</span>
@@ -486,12 +462,12 @@ export default function NovoPedidoManualPage() {
         </div>
       </div>
 
-      {/* Cartão de Informações do Pedido */}
+      {/* Cartão de Informações da Lista (Educador Único + Dados Bloqueados) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
             <Calendar className="w-4 h-4 text-[#0f3b7d]" />
-            Dados da Ordem / Cabeçalho da Lista Impressa
+            Cabeçalho da Folha Impressa
           </h2>
           <span className="text-xs text-slate-400">
             {isLoadingSeq ? 'Carregando numeração...' : `Identificador sugerido: ${orderNumber}`}
@@ -499,7 +475,7 @@ export default function NovoPedidoManualPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 text-xs">
-          {/* Número do Pedido */}
+          {/* Nº da Ordem */}
           <div className="md:col-span-2">
             <label className="block font-semibold text-slate-700 mb-1">
               Nº da Ordem
@@ -518,9 +494,9 @@ export default function NovoPedidoManualPage() {
           </div>
 
           {/* Título do Pedido */}
-          <div className="md:col-span-5">
+          <div className="md:col-span-4">
             <label className="block font-semibold text-slate-700 mb-1">
-              Título do Pedido (conforme impresso)
+              Título do Pedido
             </label>
             <input
               type="text"
@@ -529,6 +505,24 @@ export default function NovoPedidoManualPage() {
               placeholder="ENTREGA DE MATERIAL - PEDIDO #001"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
             />
+          </div>
+
+          {/* Educador da Lista (Único para todas as apostilas) */}
+          <div className="md:col-span-3">
+            <label className="block font-semibold text-[#0f3b7d] mb-1 flex items-center gap-1">
+              <UserCheck className="w-3.5 h-3.5" />
+              Educador desta Lista *
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                list="educators-list"
+                value={selectedEducator}
+                onChange={(e) => setSelectedEducator(e.target.value)}
+                placeholder="Selecione o educador..."
+                className="w-full px-3 py-2 border-2 border-[#0f3b7d]/30 focus:border-[#0f3b7d] rounded-lg font-semibold text-slate-900 bg-blue-50/20 focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]/20"
+              />
+            </div>
           </div>
 
           {/* Competência Mês / Ano */}
@@ -556,101 +550,39 @@ export default function NovoPedidoManualPage() {
               />
             </div>
           </div>
+        </div>
 
-          {/* Status do Pedido */}
-          <div className="md:col-span-2">
-            <label className="block font-semibold text-slate-700 mb-1">
-              Status no Histórico
-            </label>
-            <select
-              value={orderStatus}
-              onChange={(e) => setOrderStatus(e.target.value as any)}
-              className="w-full px-2.5 py-2 border border-slate-300 rounded-lg font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
-            >
-              <option value="archived">Arquivado / Concluído</option>
-              <option value="open">Em Aberto</option>
-            </select>
+        {/* Linha de Campos Bloqueados / Padronizados para o Histórico */}
+        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-4 text-xs text-slate-500">
+          <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+            <Lock className="w-3 h-3 text-slate-400" />
+            <span>Data da Entrega:</span>
+            <strong className="text-slate-700">Competência ({String(competenceMonth).padStart(2, '0')}/{competenceYear})</strong>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+            <Lock className="w-3 h-3 text-slate-400" />
+            <span>Liberação:</span>
+            <strong className="text-emerald-700">Liberado (Automático)</strong>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+            <Lock className="w-3 h-3 text-slate-400" />
+            <span>Status no Histórico:</span>
+            <strong className="text-[#0f3b7d]">Arquivado / Concluído</strong>
           </div>
         </div>
       </div>
 
-      {/* Barra de Ações Rápidas em Massa (Facilidade para Preenchimento) */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            <span>Preenchimento Rápido em Massa (Aplicar a todas as linhas):</span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            {/* Data em Massa */}
-            <div className="inline-flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-slate-200">
-              <span className="text-slate-500">Data:</span>
-              <input
-                type="date"
-                value={batchDate}
-                onChange={(e) => setBatchDate(e.target.value)}
-                className="text-xs text-slate-700 border-none focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleApplyBatchDate}
-                className="px-2 py-0.5 rounded bg-[#0f3b7d] text-white font-semibold text-[11px] hover:bg-[#0a2e68]"
-              >
-                Aplicar
-              </button>
-            </div>
-
-            {/* Educador em Massa */}
-            <div className="inline-flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-slate-200">
-              <span className="text-slate-500">Educador:</span>
-              <input
-                type="text"
-                list="educators-list"
-                value={batchEducator}
-                onChange={(e) => setBatchEducator(e.target.value)}
-                placeholder="Nome..."
-                className="w-28 text-xs text-slate-700 border-none focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={handleApplyBatchEducator}
-                className="px-2 py-0.5 rounded bg-[#0f3b7d] text-white font-semibold text-[11px] hover:bg-[#0a2e68]"
-              >
-                Aplicar
-              </button>
-            </div>
-
-            {/* Status Entrega em Massa */}
-            <button
-              type="button"
-              onClick={handleApplyBatchDeliveryStatus}
-              className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-[11px] hover:bg-emerald-100"
-            >
-              ✓ Marcar Todas Entregue
-            </button>
-
-            {/* Status Liberação em Massa */}
-            <button
-              type="button"
-              onClick={handleApplyBatchReleaseStatus}
-              className="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-[11px] hover:bg-blue-100"
-            >
-              ✓ Marcar Todas Liberado
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Grid de Digitação Manual */}
+      {/* Grid de Digitação Focada (Apenas Aluno e Matéria) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div className="p-4 bg-slate-50/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <h3 className="font-bold text-slate-800 text-xs uppercase tracking-wider">
               Tabela de Alunos e Apostilas ({validCount} preenchidos)
             </h3>
             <span className="text-[11px] text-slate-400">
-              Pressione Enter na última coluna para criar a próxima linha automaticamente
+              Digite o Aluno, pressione Tab para Matéria e Enter para ir à próxima linha
             </span>
           </div>
 
@@ -693,13 +625,9 @@ export default function NovoPedidoManualPage() {
             <thead className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200 uppercase tracking-wider">
               <tr>
                 <th className="py-2.5 px-3 w-12 text-center">#</th>
-                <th className="py-2.5 px-3 min-w-[220px]">Nome do Aluno *</th>
-                <th className="py-2.5 px-3 min-w-[200px]">Matéria / Apostila *</th>
-                <th className="py-2.5 px-3 min-w-[170px]">Educador</th>
-                <th className="py-2.5 px-3 min-w-[130px]">Data Entrega</th>
-                <th className="py-2.5 px-3 min-w-[110px]">Entrega</th>
-                <th className="py-2.5 px-3 min-w-[110px]">Liberação</th>
-                <th className="py-2.5 px-3 w-14 text-center">Ação</th>
+                <th className="py-2.5 px-3 min-w-[280px]">Nome do Aluno *</th>
+                <th className="py-2.5 px-3 min-w-[280px]">Matéria / Apostila *</th>
+                <th className="py-2.5 px-3 w-16 text-center">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -711,7 +639,7 @@ export default function NovoPedidoManualPage() {
                   <tr
                     key={row.id}
                     className={`transition-colors ${
-                      dupInfo ? 'bg-amber-50/60 hover:bg-amber-100/50' : 'hover:bg-slate-50/70'
+                      dupInfo ? 'bg-amber-50/70 hover:bg-amber-100/60' : 'hover:bg-slate-50/70'
                     }`}
                   >
                     {/* Número da Linha */}
@@ -723,12 +651,14 @@ export default function NovoPedidoManualPage() {
                     <td className="py-2 px-3">
                       <div className="space-y-1">
                         <input
+                          id={`student-input-${index}`}
                           ref={isLast ? lastRowInputRef : undefined}
                           type="text"
                           value={row.studentName}
                           onChange={(e) => handleRowChange(row.id, 'studentName', e.target.value)}
+                          onKeyDown={(e) => handleStudentKeyDown(e, index)}
                           placeholder="Nome completo do aluno"
-                          className="w-full px-2 py-1 border border-slate-300 rounded font-medium text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
+                          className="w-full px-3 py-1.5 border border-slate-300 rounded font-medium text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
                         />
                         {dupInfo && (
                           <div className="flex items-center gap-1 text-[10px] text-amber-700 font-semibold">
@@ -742,63 +672,14 @@ export default function NovoPedidoManualPage() {
                     {/* Matéria */}
                     <td className="py-2 px-3">
                       <input
+                        id={`subject-input-${index}`}
                         type="text"
                         value={row.subjectName}
                         onChange={(e) => handleRowChange(row.id, 'subjectName', e.target.value)}
+                        onKeyDown={(e) => handleSubjectKeyDown(e, index)}
                         placeholder="Ex: Windows 11 ou 161869_Windows 11"
-                        className="w-full px-2 py-1 border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
+                        className="w-full px-3 py-1.5 border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
                       />
-                    </td>
-
-                    {/* Educador */}
-                    <td className="py-2 px-3">
-                      <input
-                        type="text"
-                        list="educators-list"
-                        value={row.educatorName}
-                        onChange={(e) => handleRowChange(row.id, 'educatorName', e.target.value)}
-                        placeholder="Educador..."
-                        className="w-full px-2 py-1 border border-slate-300 rounded text-slate-700 text-xs focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
-                      />
-                    </td>
-
-                    {/* Data Entrega */}
-                    <td className="py-2 px-3">
-                      <input
-                        type="date"
-                        value={row.deliveryDate}
-                        onChange={(e) => handleRowChange(row.id, 'deliveryDate', e.target.value)}
-                        className="w-full px-2 py-1 border border-slate-300 rounded text-slate-700 text-xs focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
-                      />
-                    </td>
-
-                    {/* Entrega */}
-                    <td className="py-2 px-3">
-                      <select
-                        value={row.deliveryStatus}
-                        onChange={(e) => handleRowChange(row.id, 'deliveryStatus', e.target.value)}
-                        className="w-full px-2 py-1 border border-slate-300 rounded text-slate-700 font-medium text-xs focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
-                      >
-                        <option value="Entregue">Entregue</option>
-                        <option value="Pendente">Pendente</option>
-                        <option value="Não">Não</option>
-                        <option value="Sim">Sim</option>
-                      </select>
-                    </td>
-
-                    {/* Liberação */}
-                    <td className="py-2 px-3">
-                      <select
-                        value={row.releaseStatus}
-                        onChange={(e) => handleRowChange(row.id, 'releaseStatus', e.target.value)}
-                        onKeyDown={(e) => handleKeyDown(e, index, true)}
-                        className="w-full px-2 py-1 border border-slate-300 rounded text-slate-700 font-medium text-xs focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
-                      >
-                        <option value="Liberado">Liberado</option>
-                        <option value="Pendente">Pendente</option>
-                        <option value="Assinado">Assinado</option>
-                        <option value="Ok">Ok</option>
-                      </select>
                     </td>
 
                     {/* Ação Excluir */}
@@ -822,8 +703,13 @@ export default function NovoPedidoManualPage() {
         {/* Rodapé da Tabela */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-xs text-slate-500">
-            Total de linhas na tela: <span className="font-bold text-slate-800">{rows.length}</span> • Válidas para gravação:{' '}
+            Total de linhas: <span className="font-bold text-slate-800">{rows.length}</span> • Preenchidas para salvar:{' '}
             <span className="font-bold text-[#0f3b7d]">{validCount}</span>
+            {selectedEducator && (
+              <span className="ml-2 font-medium text-slate-600">
+                • Educador: <strong className="text-slate-800">{selectedEducator}</strong>
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
@@ -833,13 +719,13 @@ export default function NovoPedidoManualPage() {
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-white"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Adicionar Mais Linhas</span>
+              <span>+ Linha</span>
             </button>
 
             {/* Salvar e Ir para Histórico */}
             <button
               type="button"
-              disabled={isSaving || validCount === 0}
+              disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
               onClick={() => handleSaveOrder(true)}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[#0f3b7d] text-[#0f3b7d] font-bold text-xs hover:bg-blue-50 disabled:opacity-50"
             >
@@ -850,7 +736,7 @@ export default function NovoPedidoManualPage() {
             {/* Salvar e Lançar Próxima Lista Impressa */}
             <button
               type="button"
-              disabled={isSaving || validCount === 0}
+              disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
               onClick={() => handleSaveOrder(false)}
               className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-[#0f3b7d] text-white font-bold text-xs hover:bg-[#0a2e68] shadow-md transition-all disabled:opacity-50"
             >
@@ -862,15 +748,15 @@ export default function NovoPedidoManualPage() {
         </div>
       </div>
 
-      {/* Modal de Colagem Rápida */}
+      {/* Modal de Colagem Rápida (Aluno e Matéria) */}
       {showPasteModal && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl border border-slate-200">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <ClipboardPaste className="w-5 h-5 text-emerald-600" />
                 <h3 className="font-bold text-slate-900 text-base">
-                  Colar Linhas da Planilha ou Texto
+                  Colar Alunos e Matérias
                 </h3>
               </div>
               <button
@@ -883,14 +769,14 @@ export default function NovoPedidoManualPage() {
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Copie várias linhas no Excel, Bloco de Notas ou Word e cole na caixa abaixo. O sistema separará as colunas automaticamente (Aluno, Matéria, Educador, Data, Entrega, Liberação).
+              Copie as colunas de <strong>Aluno</strong> e <strong>Matéria</strong> da sua planilha ou texto e cole abaixo (separados por Tab ou ponto-e-vírgula). O educador atribuído será <strong>{selectedEducator || 'o selecionado no cabeçalho'}</strong>.
             </p>
 
             <textarea
               rows={8}
               value={pasteContent}
               onChange={(e) => setPasteContent(e.target.value)}
-              placeholder="Exemplo colado do Excel:&#10;Maria da Silva	161869_Windows 11	Malone de Souza	2024-05-10	Entregue	Liberado&#10;João Pereira	Excel 2021	Antonio Fagner	2024-05-10	Entregue	Liberado"
+              placeholder="Exemplo:&#10;Maria da Silva	Windows 11&#10;João Pereira	Excel 2021&#10;Ana Paula Santos	161869_Word 2021"
               className="w-full p-3 font-mono text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
             />
 
