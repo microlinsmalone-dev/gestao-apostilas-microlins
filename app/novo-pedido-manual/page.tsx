@@ -19,7 +19,9 @@ import {
   ChevronDown,
   Check,
   Search,
-  Loader2
+  Loader2,
+  Sparkles,
+  RotateCcw
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
 import { cleanSubject, normalizeText, formatOrderTitle } from '../../lib/domain/sanitizer';
@@ -31,12 +33,14 @@ interface ManualRow {
   id: string;
   studentName: string;
   subjectName: string;
+  educatorName?: string;
 }
 
 const DEFAULT_ROW = (): ManualRow => ({
   id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
   studentName: '',
   subjectName: '',
+  educatorName: '',
 });
 
 function NovoPedidoManualContent() {
@@ -55,9 +59,15 @@ function NovoPedidoManualContent() {
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [isLoadingEdit, setIsLoadingEdit] = useState(false);
 
+  // Modo vindo de importação ou rascunho persistido
+  const [isFromImport, setIsFromImport] = useState(false);
+  const [importedFileName, setImportedFileName] = useState('');
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+
   // Educador único por lista (sem preenchimento automático)
   const [selectedEducator, setSelectedEducator] = useState('');
   const [educators, setEducators] = useState<Educator[]>([]);
+  const [showEducatorColumn, setShowEducatorColumn] = useState(false);
   const [isEducatorDropdownOpen, setIsEducatorDropdownOpen] = useState(false);
   const [educatorSearch, setEducatorSearch] = useState('');
   const educatorDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -191,6 +201,7 @@ function NovoPedidoManualContent() {
           id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
           studentName: item.student_name,
           subjectName: item.subject_name,
+          educatorName: item.educator_name || '',
         }));
 
         setRows(loadedRows);
@@ -215,6 +226,104 @@ function NovoPedidoManualContent() {
       loadOrderForEdit(editOrderId);
     }
   }, [editOrderId]);
+
+  // Carrega rascunho de pedido manual do localStorage (caso tenha navegado ou vindo de importação)
+  useEffect(() => {
+    if (!editOrderId) {
+      try {
+        const saved = localStorage.getItem('microlins_draft_pedido_manual');
+        if (saved) {
+          const draft = JSON.parse(saved);
+          if (draft.rows && draft.rows.length > 0) {
+            setRows(draft.rows);
+            if (draft.title) setTitle(draft.title);
+            if (draft.competenceMonth) setCompetenceMonth(draft.competenceMonth);
+            if (draft.competenceYear) setCompetenceYear(draft.competenceYear);
+            if (draft.selectedEducator) setSelectedEducator(draft.selectedEducator);
+            if (draft.editingOrderId) setEditingOrderId(draft.editingOrderId);
+            if (draft.isEditMode !== undefined) setIsEditMode(draft.isEditMode);
+            if (draft.source === 'imported_from_nova_ordem') {
+              setIsFromImport(true);
+              setImportedFileName(draft.importedFileName || '');
+            }
+            setHasRestoredDraft(true);
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao restaurar rascunho de pedido manual:', e);
+      }
+    }
+  }, [editOrderId]);
+
+  // Persiste rascunho no localStorage para evitar perda de dados ao navegar entre telas
+  useEffect(() => {
+    if (isLoadingEdit) return;
+    const hasFilled = rows.some((r) => r.studentName.trim() || r.subjectName.trim() || r.educatorName?.trim());
+    if (hasFilled) {
+      try {
+        const draft = {
+          title,
+          competenceMonth,
+          competenceYear,
+          selectedEducator,
+          rows,
+          isEditMode,
+          editingOrderId,
+          source: isFromImport ? 'imported_from_nova_ordem' : 'manual_entry',
+          importedFileName,
+        };
+        localStorage.setItem('microlins_draft_pedido_manual', JSON.stringify(draft));
+      } catch (e) {
+        console.warn('Falha ao salvar rascunho manual:', e);
+      }
+    }
+  }, [
+    rows,
+    title,
+    competenceMonth,
+    competenceYear,
+    selectedEducator,
+    isEditMode,
+    editingOrderId,
+    isFromImport,
+    importedFileName,
+    isLoadingEdit,
+  ]);
+
+  // Descarta o rascunho atual e reinicia o formulário
+  const handleClearManualDraft = () => {
+    showConfirm({
+      title: 'Limpar Formulário',
+      message: 'Deseja limpar todos os dados preenchidos deste formulário?',
+      confirmText: 'Sim, limpar',
+      cancelText: 'Cancelar',
+      type: 'warning',
+      onConfirm: () => {
+        try {
+          localStorage.removeItem('microlins_draft_pedido_manual');
+          if (isFromImport) {
+            localStorage.removeItem('microlins_draft_nova_ordem');
+          }
+          setIsFromImport(false);
+          setImportedFileName('');
+          setIsEditMode(false);
+          setEditingOrderId(null);
+          setTitle('ENTREGA DE MATERIAL - HISTÓRICO');
+          setSelectedEducator('');
+          setShowEducatorColumn(false);
+          setHasRestoredDraft(false);
+          setRows([
+            DEFAULT_ROW(),
+            DEFAULT_ROW(),
+            DEFAULT_ROW(),
+            DEFAULT_ROW(),
+            DEFAULT_ROW(),
+          ]);
+          showToast('Formulário limpo com sucesso.', 'info');
+        } catch {}
+      },
+    });
+  };
 
   // Adiciona linha
   const handleAddRow = () => {
@@ -257,7 +366,7 @@ function NovoPedidoManualContent() {
   };
 
   // Atualiza campo de uma linha sem truncar espaços durante a digitação
-  const handleRowChange = (id: string, field: 'studentName' | 'subjectName', value: string) => {
+  const handleRowChange = (id: string, field: 'studentName' | 'subjectName' | 'educatorName', value: string) => {
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
@@ -373,15 +482,6 @@ function NovoPedidoManualContent() {
 
   // Salvar pedido no Supabase
   const handleSaveOrder = async (redirectAfterSave: boolean) => {
-    if (!selectedEducator.trim()) {
-      showAlert(
-        'Por favor, selecione o Educador desta lista antes de salvar.',
-        'warning',
-        'Educador Obrigatório'
-      );
-      return;
-    }
-
     const validRows = rows.filter((r) => r.studentName.trim() && r.subjectName.trim());
 
     if (validRows.length === 0) {
@@ -389,6 +489,16 @@ function NovoPedidoManualContent() {
         'Preencha pelo menos o Nome do Aluno e a Matéria em uma das linhas antes de salvar.',
         'warning',
         'Lista Vazia'
+      );
+      return;
+    }
+
+    const hasAnyEducator = Boolean(selectedEducator.trim()) || validRows.some((r) => Boolean(r.educatorName?.trim()));
+    if (!isFromImport && !hasAnyEducator) {
+      showAlert(
+        'Por favor, selecione o Educador desta lista antes de salvar.',
+        'warning',
+        'Educador Obrigatório'
       );
       return;
     }
@@ -438,6 +548,7 @@ function NovoPedidoManualContent() {
           );
 
           const cleanSubj = cleanSubject(row.subjectName);
+          const rowEducator = row.educatorName?.trim() || selectedEducator.trim() || null;
 
           return {
             order_id: editingOrderId,
@@ -446,7 +557,7 @@ function NovoPedidoManualContent() {
             subject_name: cleanSubj,
             subject_name_normalized: normalizeText(cleanSubj),
             raw_subject_name: row.subjectName.trim(),
-            educator_name: selectedEducator.trim(),
+            educator_name: rowEducator,
             delivery_date: competenceDateStr,
             delivery_status: 'Entregue',
             release_status: 'Liberado',
@@ -461,6 +572,14 @@ function NovoPedidoManualContent() {
 
         const { error: itemsErr } = await supabase.from('order_items').insert(itemsToInsert);
         if (itemsErr) throw itemsErr;
+
+        // Limpa rascunhos salvos
+        try {
+          localStorage.removeItem('microlins_draft_pedido_manual');
+          if (isFromImport) {
+            localStorage.removeItem('microlins_draft_nova_ordem');
+          }
+        } catch {}
 
         showToast(`Pedido atualizado com sucesso com ${validRows.length} apostilas!`, 'success');
         router.push('/historico');
@@ -497,7 +616,7 @@ function NovoPedidoManualContent() {
 
         if (orderErr) throw orderErr;
 
-        // 3. Grava os Itens do Pedido com o Educador da lista e Liberação automática
+        // 3. Grava os Itens do Pedido com o Educador da linha/lista e Liberação automática
         const itemsToInsert = validRows.map((row, idx) => {
           const fp = createDuplicateFingerprint(row.studentName, row.subjectName);
           const isHistorical = historicalMap.has(fp);
@@ -510,6 +629,7 @@ function NovoPedidoManualContent() {
           );
 
           const cleanSubj = cleanSubject(row.subjectName);
+          const rowEducator = row.educatorName?.trim() || selectedEducator.trim() || null;
 
           return {
             order_id: newOrder.id,
@@ -518,7 +638,7 @@ function NovoPedidoManualContent() {
             subject_name: cleanSubj,
             subject_name_normalized: normalizeText(cleanSubj),
             raw_subject_name: row.subjectName.trim(),
-            educator_name: selectedEducator.trim(),
+            educator_name: rowEducator,
             delivery_date: competenceDateStr,
             delivery_status: 'Entregue',
             release_status: 'Liberado',
@@ -533,6 +653,14 @@ function NovoPedidoManualContent() {
 
         const { error: itemsErr } = await supabase.from('order_items').insert(itemsToInsert);
         if (itemsErr) throw itemsErr;
+
+        // Limpa rascunhos salvos
+        try {
+          localStorage.removeItem('microlins_draft_pedido_manual');
+          if (isFromImport) {
+            localStorage.removeItem('microlins_draft_nova_ordem');
+          }
+        } catch {}
 
         showToast(`Lista de ${validRows.length} apostilas salva com sucesso no histórico!`, 'success');
 
@@ -579,6 +707,10 @@ function NovoPedidoManualContent() {
   const filteredEducators = educators.filter((ed) =>
     ed.name.toLowerCase().includes(educatorSearch.toLowerCase())
   );
+  const hasAnyRowEducator = rows.some((r) => Boolean(r.educatorName?.trim()));
+  const displayEducatorCol = showEducatorColumn || hasAnyRowEducator || isFromImport;
+  const hasAnyEducator = Boolean(selectedEducator.trim()) || hasAnyRowEducator;
+  const canSave = !isSaving && validCount > 0 && (isFromImport || hasAnyEducator);
 
   // Loading state para edição
   if (isLoadingEdit) {
@@ -635,6 +767,60 @@ function NovoPedidoManualContent() {
           </button>
         </div>
       </div>
+
+      {/* Banner de Rascunho Importado de Nova Ordem */}
+      {isFromImport && (
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-[#0f3b7d] text-white rounded-lg shadow-sm">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-800 text-sm">
+                Pedido importado pronto para edição ({validCount} apostilas)
+              </p>
+              <p className="text-slate-600">
+                {importedFileName ? `Origem: ${importedFileName} • ` : ''}
+                Você pode ajustar alunos, matérias, educadores ou adicionar novas linhas antes de salvar no histórico.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link
+              href="/nova-ordem"
+              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition-colors shadow-sm"
+            >
+              ← Voltar à Importação
+            </Link>
+            <button
+              type="button"
+              onClick={handleClearManualDraft}
+              className="px-3 py-1.5 rounded-lg border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 font-semibold transition-colors"
+            >
+              Descartar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Banner de Rascunho Restaurado Automaticamente */}
+      {hasRestoredDraft && !isFromImport && !isEditMode && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-900 shadow-sm">
+          <div className="flex items-center gap-2">
+            <RotateCcw className="w-4 h-4 text-amber-700 shrink-0" />
+            <span>
+              <strong>Rascunho preservado:</strong> Seus dados foram restaurados automaticamente para você não perder nada ao navegar entre as páginas.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleClearManualDraft}
+            className="text-xs font-semibold text-amber-800 hover:text-amber-950 underline self-end sm:self-auto shrink-0"
+          >
+            Limpar formulário e recomeçar
+          </button>
+        </div>
+      )}
 
       {/* Cartão de Informações da Lista (Educador Único com Caixinha Personalizada) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-4">
@@ -843,6 +1029,20 @@ function NovoPedidoManualContent() {
             >
               Limpar Vazias
             </button>
+            {displayEducatorCol ? (
+              <span className="text-[11px] text-[#0f3b7d] font-semibold bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200">
+                Coluna Educador Ativa
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowEducatorColumn(true)}
+                className="px-2.5 py-1.5 rounded-lg border border-dashed border-slate-300 text-slate-600 font-semibold text-xs hover:bg-slate-50 hover:text-slate-800"
+                title="Habilitar coluna para especificar educador individual por aluno"
+              >
+                + Coluna Educador
+              </button>
+            )}
           </div>
         </div>
 
@@ -851,8 +1051,11 @@ function NovoPedidoManualContent() {
             <thead className="bg-slate-100/90 text-slate-700 font-bold border-b border-slate-200 uppercase tracking-wider">
               <tr>
                 <th className="py-2.5 px-3 w-12 text-center">#</th>
-                <th className="py-2.5 px-3 min-w-[280px]">Nome do Aluno *</th>
-                <th className="py-2.5 px-3 min-w-[280px]">Matéria / Apostila *</th>
+                <th className="py-2.5 px-3 min-w-[240px]">Nome do Aluno *</th>
+                <th className="py-2.5 px-3 min-w-[240px]">Matéria / Apostila *</th>
+                {displayEducatorCol && (
+                  <th className="py-2.5 px-3 min-w-[180px]">Educador</th>
+                )}
                 <th className="py-2.5 px-3 w-16 text-center">Ação</th>
               </tr>
             </thead>
@@ -911,6 +1114,20 @@ function NovoPedidoManualContent() {
                       />
                     </td>
 
+                    {/* Educador por Linha */}
+                    {displayEducatorCol && (
+                      <td className="py-2 px-3">
+                        <input
+                          type="text"
+                          autoComplete="off"
+                          value={row.educatorName || ''}
+                          onChange={(e) => handleRowChange(row.id, 'educatorName', e.target.value)}
+                          placeholder={selectedEducator || 'Educador do aluno'}
+                          className="w-full px-3 py-1.5 border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
+                        />
+                      </td>
+                    )}
+
                     {/* Ação Excluir */}
                     <td className="py-2 px-3 text-center">
                       <button
@@ -936,12 +1153,21 @@ function NovoPedidoManualContent() {
             <span className="font-bold text-[#0f3b7d]">{validCount}</span>
             {selectedEducator && (
               <span className="ml-2 font-medium text-slate-600">
-                • Educador: <strong className="text-slate-800">{selectedEducator}</strong>
+                • Educador Geral: <strong className="text-slate-800">{selectedEducator}</strong>
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={handleClearManualDraft}
+              className="px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-600 hover:text-red-700 hover:bg-red-50 hover:border-red-200 transition-colors"
+              title="Limpar formulário e apagar rascunho"
+            >
+              Limpar Tudo
+            </button>
+
             <button
               type="button"
               onClick={handleAddRow}
@@ -962,7 +1188,7 @@ function NovoPedidoManualContent() {
                 </Link>
                 <button
                   type="button"
-                  disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
+                  disabled={!canSave}
                   onClick={() => handleSaveOrder(true)}
                   className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-[#0f3b7d] text-white font-bold text-xs hover:bg-[#0a2e68] shadow-md transition-all disabled:opacity-50"
                 >
@@ -976,7 +1202,7 @@ function NovoPedidoManualContent() {
                 {/* Salvar e Ir para Histórico */}
                 <button
                   type="button"
-                  disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
+                  disabled={!canSave}
                   onClick={() => handleSaveOrder(true)}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[#0f3b7d] text-[#0f3b7d] font-bold text-xs hover:bg-blue-50 disabled:opacity-50"
                 >
@@ -987,7 +1213,7 @@ function NovoPedidoManualContent() {
                 {/* Salvar e Lançar Próxima Lista Impressa */}
                 <button
                   type="button"
-                  disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
+                  disabled={!canSave}
                   onClick={() => handleSaveOrder(false)}
                   className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-[#0f3b7d] text-white font-bold text-xs hover:bg-[#0a2e68] shadow-md transition-all disabled:opacity-50"
                 >

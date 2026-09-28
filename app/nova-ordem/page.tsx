@@ -62,6 +62,7 @@ export default function NovaOrdemPage() {
   const [baseContratosSource, setBaseContratosSource] = useState<'system' | 'custom' | null>(null);
   const [isProcessingBaseContratos, setIsProcessingBaseContratos] = useState(false);
   const [crossedEducatorsCount, setCrossedEducatorsCount] = useState(0);
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
 
   // Data & Duplicates State
   const [items, setItems] = useState<ProcessedStudentItem[]>([]);
@@ -201,6 +202,31 @@ export default function NovaOrdemPage() {
           }
         } catch (e) {
           console.warn('Base de contratos padrão não encontrada automaticamente:', e);
+        }
+
+        // 5. Restaura rascunho de importação em andamento (se houver)
+        try {
+          const savedDraft = localStorage.getItem('microlins_draft_nova_ordem');
+          if (savedDraft) {
+            const draft = JSON.parse(savedDraft);
+            if (draft.items && draft.items.length > 0) {
+              setItems(draft.items);
+              if (draft.title) setTitle(draft.title);
+              if (draft.fileName) setFileName(draft.fileName);
+              if (draft.lessonMin !== undefined) setLessonMin(draft.lessonMin);
+              if (draft.lessonMax !== undefined) setLessonMax(draft.lessonMax);
+              if (draft.allLessons !== undefined) setAllLessons(draft.allLessons);
+              if (draft.selectedEducator) setSelectedEducator(draft.selectedEducator);
+              if (draft.filterEducator) setFilterEducator(draft.filterEducator);
+              if (draft.crossedEducatorsCount) setCrossedEducatorsCount(draft.crossedEducatorsCount);
+              if (draft.internalDuplicatesCount !== undefined) setInternalDuplicatesCount(draft.internalDuplicatesCount);
+              if (draft.historicalDuplicatesCount !== undefined) setHistoricalDuplicatesCount(draft.historicalDuplicatesCount);
+              setStep(3);
+              setHasRestoredDraft(true);
+            }
+          }
+        } catch (draftErr) {
+          console.warn('Erro ao restaurar rascunho de nova ordem:', draftErr);
         }
       } catch (err) {
         console.warn('Supabase offline ou tabelas pendentes:', err);
@@ -576,6 +602,7 @@ export default function NovaOrdemPage() {
           'success'
         );
       } else {
+        localStorage.removeItem('microlins_draft_nova_ordem');
         showToast(`Pedido ${orderNumber} criado com sucesso com ${itemsToSave.length} apostilas!`, 'success');
         router.push('/historico');
       }
@@ -589,6 +616,106 @@ export default function NovaOrdemPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Salva rascunho de importação automaticamente no localStorage para não perder ao navegar
+  useEffect(() => {
+    if (items.length > 0) {
+      try {
+        const draft = {
+          title,
+          fileName,
+          items,
+          step,
+          lessonMin,
+          lessonMax,
+          allLessons,
+          selectedEducator,
+          filterEducator,
+          crossedEducatorsCount,
+          internalDuplicatesCount,
+          historicalDuplicatesCount,
+        };
+        localStorage.setItem('microlins_draft_nova_ordem', JSON.stringify(draft));
+      } catch (e) {
+        console.warn('Falha ao salvar rascunho de nova ordem:', e);
+      }
+    }
+  }, [
+    items,
+    title,
+    fileName,
+    step,
+    lessonMin,
+    lessonMax,
+    allLessons,
+    selectedEducator,
+    filterEducator,
+    crossedEducatorsCount,
+    internalDuplicatesCount,
+    historicalDuplicatesCount,
+  ]);
+
+  // Descarta o rascunho de importação e reinicia o fluxo
+  const handleClearDraft = () => {
+    showConfirm({
+      title: 'Descartar Rascunho',
+      message: 'Deseja descartar a importação atual e limpar os dados carregados?',
+      confirmText: 'Sim, descartar',
+      cancelText: 'Cancelar',
+      type: 'warning',
+      onConfirm: () => {
+        try {
+          localStorage.removeItem('microlins_draft_nova_ordem');
+          setItems([]);
+          setFileName('');
+          setRawBuffer(null);
+          setTitle('ENTREGA DE MATERIAL - PEDIDO');
+          setSelectedEducator('');
+          setFilterEducator('all');
+          setCrossedEducatorsCount(0);
+          setHasRestoredDraft(false);
+          setStep(1);
+          showToast('Importação descartada com sucesso.', 'info');
+        } catch {}
+      },
+    });
+  };
+
+  // Abre os dados importados no editor de Pedido Manual para edição livre de linhas
+  const handleEditInManualOrder = () => {
+    const targetItems = filterEducator !== 'all' && filterEducator !== '__unassigned__' ? visibleItems : items;
+    if (targetItems.length === 0) {
+      showAlert('Não há itens válidos para editar no Pedido Manual.', 'warning', 'Atenção');
+      return;
+    }
+
+    let finalTitle = title;
+    if (filterEducator !== 'all' && filterEducator !== '__unassigned__' && !title.toLowerCase().includes(filterEducator.toLowerCase())) {
+      finalTitle = `${title} (${filterEducator})`;
+    }
+
+    const manualRows = targetItems.map((item) => ({
+      id: item.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9)),
+      studentName: item.studentName,
+      subjectName: item.subjectName,
+      educatorName: selectedEducator.trim() || item.educatorName || '',
+    }));
+
+    const draftManual = {
+      title: finalTitle,
+      competenceMonth: new Date().getMonth() + 1,
+      competenceYear: new Date().getFullYear(),
+      selectedEducator: selectedEducator.trim() || (filterEducator !== 'all' && filterEducator !== '__unassigned__' ? filterEducator : ''),
+      rows: manualRows,
+      isEditMode: false,
+      source: 'imported_from_nova_ordem',
+      importedFileName: fileName,
+    };
+
+    localStorage.setItem('microlins_draft_pedido_manual', JSON.stringify(draftManual));
+    showToast(`Carregando ${manualRows.length} apostilas no editor manual...`, 'info');
+    router.push('/novo-pedido-manual?from=import');
   };
 
   const filteredEducators = educators.filter((ed) =>
@@ -642,6 +769,35 @@ export default function NovaOrdemPage() {
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0" />
           <span>{errorMessage}</span>
+        </div>
+      )}
+
+      {/* Banner de Rascunho Restaurado */}
+      {hasRestoredDraft && items.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 text-[#0f3b7d] px-4 py-3 rounded-xl text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-150">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-[#0f3b7d] shrink-0" />
+            <span>
+              <strong>Rascunho mantido:</strong> Sua importação com <strong>{items.length} apostilas</strong> foi restaurada para não perder seu trabalho ao navegar entre as opções do sistema.
+            </span>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={handleEditInManualOrder}
+              className="text-xs font-bold text-[#0f3b7d] hover:underline flex items-center gap-1"
+            >
+              <ClipboardList className="w-3.5 h-3.5" />
+              Editar no Pedido Manual
+            </button>
+            <button
+              type="button"
+              onClick={handleClearDraft}
+              className="text-slate-500 hover:text-red-600 font-semibold underline text-[11px]"
+            >
+              Descartar e começar novo
+            </button>
+          </div>
         </div>
       )}
 
@@ -1396,7 +1552,29 @@ export default function NovaOrdemPage() {
               )}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Botão de Descartar Rascunho */}
+              <button
+                type="button"
+                onClick={handleClearDraft}
+                className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-slate-300 text-slate-600 hover:text-red-600 hover:border-red-300 hover:bg-red-50 text-xs font-semibold transition-colors"
+                title="Descartar importação atual e reiniciar"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Descartar</span>
+              </button>
+
+              {/* Botão para Editar no Pedido Manual */}
+              <button
+                type="button"
+                onClick={handleEditInManualOrder}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-blue-300 bg-blue-50 text-[#0f3b7d] font-bold text-xs hover:bg-blue-100 transition-all shadow-xs"
+                title="Abrir esses dados no editor de Pedido Manual para edição livre de alunos e matérias"
+              >
+                <ClipboardList className="w-4 h-4" />
+                <span>✍️ Editar no Pedido Manual ({visibleItems.length})</span>
+              </button>
+
               {/* Botão de Finalizar apenas o Educador Filtrado */}
               {filterEducator !== 'all' && filterEducator !== '__unassigned__' && (
                 <button
