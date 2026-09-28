@@ -35,6 +35,12 @@ interface ManualRow {
   educatorName?: string;
 }
 
+interface HistoricalEntry {
+  orderId: string;
+  orderTitle: string;
+  educatorName?: string | null;
+}
+
 const DEFAULT_ROW = (): ManualRow => ({
   id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
   studentName: '',
@@ -54,8 +60,8 @@ function NovoPedidoManualContent() {
   const [competenceYear, setCompetenceYear] = useState(new Date().getFullYear());
   
   // Modo de edição (quando carregado via ?edit=ID)
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState<boolean>(() => Boolean(editOrderId));
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(() => editOrderId || null);
   const [isLoadingEdit, setIsLoadingEdit] = useState(false);
 
   // Modo vindo de importação ou rascunho persistido
@@ -80,8 +86,8 @@ function NovoPedidoManualContent() {
     DEFAULT_ROW(),
   ]);
 
-  // Mapa de duplicidades históricas: fingerprint -> orderTitle
-  const [historicalMap, setHistoricalMap] = useState<Map<string, string>>(new Map());
+  // Mapa de duplicidades históricas: fingerprint -> HistoricalEntry[]
+  const [historicalMap, setHistoricalMap] = useState<Map<string, HistoricalEntry[]>>(new Map());
 
   // Estado do Modal de Colagem Rápida
   const [showPasteModal, setShowPasteModal] = useState(false);
@@ -127,13 +133,19 @@ function NovoPedidoManualContent() {
       // 2. Busca itens já cadastrados no histórico para aviso de duplicidades
       const { data: existingItems } = await supabase
         .from('order_items')
-        .select('duplicate_fingerprint, orders(title)');
+        .select('duplicate_fingerprint, educator_name, order_id, orders(title)');
 
       if (existingItems) {
-        const hist = new Map<string, string>();
+        const hist = new Map<string, HistoricalEntry[]>();
         existingItems.forEach((item: any) => {
           if (item.duplicate_fingerprint) {
-            hist.set(item.duplicate_fingerprint, item.orders?.title || 'Pedido Anterior');
+            const list = hist.get(item.duplicate_fingerprint) || [];
+            list.push({
+              orderId: item.order_id,
+              orderTitle: item.orders?.title || 'Pedido Anterior',
+              educatorName: item.educator_name || null,
+            });
+            hist.set(item.duplicate_fingerprint, list);
           }
         });
         setHistoricalMap(hist);
@@ -458,12 +470,32 @@ function NovoPedidoManualContent() {
     if (!row.studentName.trim() || !row.subjectName.trim()) return null;
     const fp = createDuplicateFingerprint(row.studentName, row.subjectName);
 
-    // Duplicidade histórica
+    const currentOrderId = editingOrderId || editOrderId;
+
+    // Duplicidade histórica (desconsidera registros do próprio pedido em edição)
     if (historicalMap.has(fp)) {
-      return {
-        type: 'historical',
-        message: `Já entregue no histórico: "${historicalMap.get(fp)}"`,
-      };
+      const allEntries = historicalMap.get(fp) || [];
+      const otherOrders = allEntries.filter(
+        (entry) => !currentOrderId || entry.orderId !== currentOrderId
+      );
+
+      if (otherOrders.length > 0) {
+        const match = otherOrders[0];
+        let matchEducator = match.educatorName ? toFirstName(match.educatorName) : '';
+        if (!matchEducator && match.orderTitle) {
+          const titleMatch = match.orderTitle.match(/\(([^)]+)\)$/);
+          if (titleMatch && titleMatch[1]) {
+            matchEducator = toFirstName(titleMatch[1]);
+          }
+        }
+
+        return {
+          type: 'historical' as const,
+          message: `Já entregue no histórico: "${match.orderTitle}"`,
+          orderTitle: match.orderTitle,
+          educatorName: matchEducator,
+        };
+      }
     }
 
     // Duplicidade interna na própria lista digitada
@@ -477,7 +509,7 @@ function NovoPedidoManualContent() {
 
     if (internalIndex !== -1 && internalIndex < index) {
       return {
-        type: 'internal',
+        type: 'internal' as const,
         message: `Repetido na linha ${internalIndex + 1} desta mesma lista`,
       };
     }
@@ -543,8 +575,12 @@ function NovoPedidoManualContent() {
         // 3. Insere os itens atualizados
         const itemsToInsert = validRows.map((row, idx) => {
           const fp = createDuplicateFingerprint(row.studentName, row.subjectName);
-          const isHistorical = historicalMap.has(fp);
-          const matchTitle = isHistorical ? historicalMap.get(fp) : null;
+          const allEntries = historicalMap.get(fp) || [];
+          const otherOrders = allEntries.filter(
+            (entry) => !editingOrderId || entry.orderId !== editingOrderId
+          );
+          const isHistorical = otherOrders.length > 0;
+          const matchTitle = isHistorical ? otherOrders[0].orderTitle : null;
 
           const isInternal = validRows.some(
             (other, otherIdx) =>
@@ -553,7 +589,7 @@ function NovoPedidoManualContent() {
           );
 
           const cleanSubj = cleanSubject(row.subjectName);
-          const rowEducator = row.educatorName?.trim() || selectedEducator.trim() || null;
+          const rowEducator = toFirstName(row.educatorName?.trim() || selectedEducator.trim() || '');
 
           return {
             order_id: editingOrderId,
@@ -562,7 +598,7 @@ function NovoPedidoManualContent() {
             subject_name: cleanSubj,
             subject_name_normalized: normalizeText(cleanSubj),
             raw_subject_name: row.subjectName.trim(),
-            educator_name: rowEducator,
+            educator_name: rowEducator || null,
             delivery_date: competenceDateStr,
             delivery_status: 'Entregue',
             release_status: 'Liberado',
@@ -577,6 +613,18 @@ function NovoPedidoManualContent() {
 
         const { error: itemsErr } = await supabase.from('order_items').insert(itemsToInsert);
         if (itemsErr) throw itemsErr;
+
+        // Atualiza historicalMap em memória para o pedido editado
+        validRows.forEach((r) => {
+          const fp = createDuplicateFingerprint(r.studentName, r.subjectName);
+          const list = (historicalMap.get(fp) || []).filter((e) => e.orderId !== editingOrderId);
+          list.push({
+            orderId: editingOrderId,
+            orderTitle: cleanTitleStr,
+            educatorName: toFirstName(r.educatorName?.trim() || selectedEducator.trim() || ''),
+          });
+          historicalMap.set(fp, list);
+        });
 
         // Limpa rascunhos salvos
         try {
@@ -624,8 +672,9 @@ function NovoPedidoManualContent() {
         // 3. Grava os Itens do Pedido com o Educador da linha/lista e Liberação automática
         const itemsToInsert = validRows.map((row, idx) => {
           const fp = createDuplicateFingerprint(row.studentName, row.subjectName);
-          const isHistorical = historicalMap.has(fp);
-          const matchTitle = isHistorical ? historicalMap.get(fp) : null;
+          const allEntries = historicalMap.get(fp) || [];
+          const isHistorical = allEntries.length > 0;
+          const matchTitle = isHistorical ? allEntries[0].orderTitle : null;
 
           const isInternal = validRows.some(
             (other, otherIdx) =>
@@ -634,7 +683,7 @@ function NovoPedidoManualContent() {
           );
 
           const cleanSubj = cleanSubject(row.subjectName);
-          const rowEducator = row.educatorName?.trim() || selectedEducator.trim() || null;
+          const rowEducator = toFirstName(row.educatorName?.trim() || selectedEducator.trim() || '');
 
           return {
             order_id: newOrder.id,
@@ -643,7 +692,7 @@ function NovoPedidoManualContent() {
             subject_name: cleanSubj,
             subject_name_normalized: normalizeText(cleanSubj),
             raw_subject_name: row.subjectName.trim(),
-            educator_name: rowEducator,
+            educator_name: rowEducator || null,
             delivery_date: competenceDateStr,
             delivery_status: 'Entregue',
             release_status: 'Liberado',
@@ -685,7 +734,13 @@ function NovoPedidoManualContent() {
           // Atualiza mapa de duplicidades local
           validRows.forEach((r) => {
             const fp = createDuplicateFingerprint(r.studentName, r.subjectName);
-            historicalMap.set(fp, cleanTitleStr);
+            const list = historicalMap.get(fp) || [];
+            list.push({
+              orderId: newOrder.id,
+              orderTitle: cleanTitleStr,
+              educatorName: toFirstName(r.educatorName?.trim() || selectedEducator.trim() || ''),
+            });
+            historicalMap.set(fp, list);
           });
 
           // Foca no topo da tabela
@@ -1086,9 +1141,19 @@ function NovoPedidoManualContent() {
                           className="w-full px-3 py-1.5 border border-slate-300 rounded font-medium text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
                         />
                         {dupInfo && (
-                          <div className="flex items-center gap-1 text-[10px] text-amber-700 font-semibold">
-                            <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
-                            <span>{dupInfo.message}</span>
+                          <div className="flex flex-col gap-0.5 text-[10px] text-amber-700 font-semibold mt-1">
+                            <div className="flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span>{dupInfo.message}</span>
+                            </div>
+                            {dupInfo.type === 'historical' && (
+                              <div className="pl-4 text-slate-600 font-medium">
+                                <span>Educador: </span>
+                                <strong className="text-slate-800">
+                                  {dupInfo.educatorName || 'Não informado'}
+                                </strong>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

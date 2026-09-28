@@ -126,3 +126,64 @@ describe('Controle Pedagógico Complementar (Próxima Matéria, Turma e Horário
     expect(result.items[1].classSchedule).toBeUndefined();
   });
 });
+
+describe('Detecção de Duplicidades em Modo Edição', () => {
+  interface HistoricalEntry {
+    orderId: string;
+    orderTitle: string;
+    educatorName?: string | null;
+  }
+
+  const historicalMap = new Map<string, HistoricalEntry[]>([
+    [
+      'kevyn lucas pereira|||windows 11',
+      [
+        {
+          orderId: 'order-pedido-2',
+          orderTitle: 'ENTREGA DE MATERIAL - 2º PEDIDO SETEMBRO',
+          educatorName: 'Antonio Fagner dos Santos Silva',
+        },
+      ],
+    ],
+    [
+      'georlando vicente lopes|||excel 2021',
+      [
+        {
+          orderId: 'order-pedido-1',
+          orderTitle: 'ENTREGA DE MATERIAL - 1º PEDIDO SETEMBRO',
+          educatorName: 'Malone de Souza',
+        },
+        {
+          orderId: 'order-pedido-2',
+          orderTitle: 'ENTREGA DE MATERIAL - 2º PEDIDO SETEMBRO',
+          educatorName: 'Antonio Fagner dos Santos Silva',
+        },
+      ],
+    ],
+  ]);
+
+  it('não deve apontar duplicidade histórica para o próprio pedido que está sendo editado', () => {
+    const currentOrderId = 'order-pedido-2';
+    const fp = 'kevyn lucas pereira|||windows 11';
+
+    const allMatches = historicalMap.get(fp) || [];
+    const otherOrders = allMatches.filter((entry) => entry.orderId !== currentOrderId);
+
+    // Como o único registro no histórico é do próprio pedido que estamos editando, não deve duplicar
+    expect(otherOrders.length).toBe(0);
+  });
+
+  it('deve apontar duplicidade histórica e extrair o primeiro nome do educador se o registro for de OUTRO pedido', () => {
+    const currentOrderId = 'order-pedido-2';
+    const fp = 'georlando vicente lopes|||excel 2021';
+
+    const allMatches = historicalMap.get(fp) || [];
+    const otherOrders = allMatches.filter((entry) => entry.orderId !== currentOrderId);
+
+    // O registro de order-pedido-1 é de outro pedido, então deve ser apontado
+    expect(otherOrders.length).toBe(1);
+    expect(otherOrders[0].orderTitle).toBe('ENTREGA DE MATERIAL - 1º PEDIDO SETEMBRO');
+    expect(toFirstName(otherOrders[0].educatorName)).toBe('Malone');
+  });
+});
+

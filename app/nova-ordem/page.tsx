@@ -214,14 +214,16 @@ export default function NovaOrdemPage() {
         // 3. Busca itens do histórico para detecção de duplicidades
         const { data: existingItems } = await supabase
           .from('order_items')
-          .select('duplicate_fingerprint, orders(title)');
+          .select('duplicate_fingerprint, educator_name, orders(title)');
 
         if (existingItems) {
           const hist = new Map<string, string>();
           existingItems.forEach((item: any) => {
             if (item.duplicate_fingerprint) {
               const orderTitle = item.orders?.title || 'Pedido Anterior';
-              hist.set(item.duplicate_fingerprint, orderTitle);
+              const ed = item.educator_name ? toFirstName(item.educator_name) : '';
+              const desc = ed ? `${orderTitle} (Educador: ${ed})` : orderTitle;
+              hist.set(item.duplicate_fingerprint, desc);
             }
           });
           setHistoricalMap(hist);
