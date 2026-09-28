@@ -9,13 +9,11 @@ import {
   Search,
   FileSpreadsheet,
   Printer,
-  Edit3,
   RotateCcw,
   Trash2,
   Calendar,
   CheckCircle2,
   X,
-  Save,
   Plus,
   ClipboardList,
   ArrowUpDown,
@@ -27,8 +25,6 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase/client';
 import { Order, OrderItem } from '../../types';
 import { useDialog } from '../../components/ui/dialog';
-import { cleanSubject, normalizeText } from '../../lib/domain/sanitizer';
-import { createDuplicateFingerprint } from '../../lib/domain/duplicates';
 
 type SortField = 'title' | 'competence' | 'total_items' | 'status' | 'educator';
 type SortDirection = 'asc' | 'desc';
@@ -51,13 +47,10 @@ function HistoricoContent() {
   const [sortField, setSortField] = useState<SortField>('title');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
-  // Selected Order for Edit / Detail
+  // Selected Order for Detail
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [activeItems, setActiveItems] = useState<OrderItem[]>([]);
-  const [deletedItemIds, setDeletedItemIds] = useState<string[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
 
   // Carrega lista de pedidos com educador predominante
   const loadOrders = async () => {
@@ -119,7 +112,7 @@ function HistoricoContent() {
 
       if (editIdParam && data) {
         const target = ordersWithEducator.find((o) => o.id === editIdParam);
-        if (target) handleOpenOrder(target, true);
+        if (target) handleOpenOrder(target);
       }
     } catch (err) {
       console.warn('Erro ao carregar histórico:', err);
@@ -132,11 +125,9 @@ function HistoricoContent() {
     loadOrders();
   }, [editIdParam]);
 
-  // Abre detalhes e itens do pedido
-  const handleOpenOrder = async (order: Order, editMode = false) => {
+  // Abre detalhes e itens do pedido para visualização (somente leitura)
+  const handleOpenOrder = async (order: Order) => {
     setActiveOrder(order);
-    setIsEditing(editMode);
-    setDeletedItemIds([]);
     try {
       setIsLoadingItems(true);
       const { data, error } = await supabase
@@ -157,134 +148,6 @@ function HistoricoContent() {
   // Editar pedido na tela de lançamento manual (carrega os dados lá)
   const handleEditInManualPage = (order: Order) => {
     router.push(`/novo-pedido-manual?edit=${order.id}`);
-  };
-
-  // Adiciona nova linha ao pedido em edição
-  const handleAddNewItem = () => {
-    if (!activeOrder) return;
-    const newItem: OrderItem = {
-      id: `new-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      order_id: activeOrder.id,
-      student_name: '',
-      student_name_normalized: '',
-      subject_name: '',
-      subject_name_normalized: '',
-      raw_subject_name: '',
-      course_name: null,
-      educator_name: '',
-      contract_number: null,
-      current_lesson: 0,
-      scheduled_day: null,
-      scheduled_time: null,
-      class_schedule: null,
-      next_subject: null,
-      phone: null,
-      delivery_status: 'Entregue',
-      delivery_date: new Date().toISOString().split('T')[0],
-      release_status: 'Liberado',
-      duplicate_fingerprint: '',
-      is_internal_duplicate: false,
-      is_historical_duplicate: false,
-      historical_match_order_title: null,
-      source_row: activeItems.length + 1,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setActiveItems((prev) => [...prev, newItem]);
-  };
-
-  // Remove linha durante a edição
-  const handleRemoveActiveItem = (idx: number) => {
-    const itemToRemove = activeItems[idx];
-    if (itemToRemove && !itemToRemove.id.startsWith('new-')) {
-      setDeletedItemIds((prev) => [...prev, itemToRemove.id]);
-    }
-    setActiveItems((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  // Salva edições in-place no pedido mantendo a data de criação original
-  const handleSaveEdits = async () => {
-    if (!activeOrder) return;
-    try {
-      setIsSaving(true);
-
-      const validItems = activeItems.filter(
-        (i) => i.student_name.trim() && i.subject_name.trim()
-      );
-
-      // 1. Atualiza o pedido
-      const { error: orderErr } = await supabase
-        .from('orders')
-        .update({
-          title: activeOrder.title.trim(),
-          total_items: validItems.length,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', activeOrder.id);
-
-      if (orderErr) throw orderErr;
-
-      // 2. Remove itens excluídos pelo operador
-      if (deletedItemIds.length > 0) {
-        await supabase.from('order_items').delete().in('id', deletedItemIds);
-      }
-
-      // 3. Atualiza ou insere itens
-      for (const item of validItems) {
-        const fp = createDuplicateFingerprint(item.student_name, item.subject_name);
-        const normStudent = normalizeText(item.student_name);
-        const cleanSubj = cleanSubject(item.subject_name);
-        const normSubj = normalizeText(cleanSubj);
-
-        if (item.id.startsWith('new-')) {
-          // Inserção de novo item
-          await supabase.from('order_items').insert({
-            order_id: activeOrder.id,
-            student_name: item.student_name.trim(),
-            student_name_normalized: normStudent,
-            subject_name: item.subject_name.trim(),
-            subject_name_normalized: normSubj,
-            raw_subject_name: item.subject_name.trim(),
-            educator_name: item.educator_name ? item.educator_name.trim() : null,
-            delivery_date: item.delivery_date || null,
-            delivery_status: item.delivery_status || 'Entregue',
-            release_status: item.release_status || 'Liberado',
-            current_lesson: Number(item.current_lesson) || 0,
-            duplicate_fingerprint: fp,
-            source_row: item.source_row || 1,
-          });
-        } else {
-          // Atualização de item existente
-          await supabase
-            .from('order_items')
-            .update({
-              student_name: item.student_name.trim(),
-              student_name_normalized: normStudent,
-              subject_name: item.subject_name.trim(),
-              subject_name_normalized: normSubj,
-              educator_name: item.educator_name ? item.educator_name.trim() : null,
-              delivery_date: item.delivery_date || null,
-              delivery_status: item.delivery_status || 'Entregue',
-              release_status: item.release_status || 'Liberado',
-              current_lesson: Number(item.current_lesson) || 0,
-              duplicate_fingerprint: fp,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', item.id);
-        }
-      }
-
-      showToast('Edição salva com sucesso no histórico!', 'success');
-      setIsEditing(false);
-      setDeletedItemIds([]);
-      // Recarrega itens do pedido ativo
-      handleOpenOrder(activeOrder, false);
-      loadOrders();
-    } catch (err: any) {
-      showAlert(`Erro ao salvar: ${err.message}`, 'error');
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   // Exclusão definitiva de pedido com confirmação
@@ -554,7 +417,7 @@ function HistoricoContent() {
                       <div className="inline-flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleOpenOrder(order, false)}
+                          onClick={() => handleOpenOrder(order)}
                           className="px-2.5 py-1 rounded bg-blue-50 text-[#0f3b7d] hover:bg-[#0f3b7d] hover:text-white font-semibold transition-colors"
                           title="Visualizar itens do pedido"
                         >
@@ -564,17 +427,9 @@ function HistoricoContent() {
                           type="button"
                           onClick={() => handleEditInManualPage(order)}
                           className="px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white font-semibold transition-colors"
-                          title="Editar no painel de lançamento manual"
+                          title="Editar no Pedido Manual"
                         >
                           <Pencil className="w-3.5 h-3.5 inline" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenOrder(order, true)}
-                          className="px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white font-semibold transition-colors"
-                          title="Editar pedido in-place"
-                        >
-                          <Edit3 className="w-3.5 h-3.5 inline" />
                         </button>
                         <button
                           type="button"
@@ -594,23 +449,12 @@ function HistoricoContent() {
         )}
       </div>
 
-      {/* Modal / Painel Lateral de Detalhes ou Edição do Pedido */}
+      {/* Modal / Painel de Detalhes do Pedido (Somente Leitura) */}
       {activeOrder && (
         <div className="bg-white rounded-xl border border-slate-300 shadow-lg p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-3">
             <div>
-              <div className="flex items-center gap-2">
-                {isEditing ? (
-                  <input
-                    type="text"
-                    value={activeOrder.title}
-                    onChange={(e) => setActiveOrder({ ...activeOrder, title: e.target.value })}
-                    className="font-bold text-slate-900 border border-slate-300 rounded px-2 py-1 text-sm w-80"
-                  />
-                ) : (
-                  <h3 className="font-bold text-slate-900 text-sm">{activeOrder.title}</h3>
-                )}
-              </div>
+              <h3 className="font-bold text-slate-900 text-sm">{activeOrder.title}</h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 Competência: {activeOrder.competence_month}/{activeOrder.competence_year} •{' '}
                 {activeItems.length} materiais cadastrados
@@ -636,36 +480,15 @@ function HistoricoContent() {
                 <span>Imprimir / PDF</span>
               </button>
 
-              {isEditing ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleAddNewItem}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-300 text-xs font-bold hover:bg-emerald-100"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Adicionar Aluno</span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isSaving}
-                    onClick={handleSaveEdits}
-                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#0f3b7d] text-white text-xs font-bold hover:bg-[#0a2e68]"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    <span>{isSaving ? 'Salvando...' : 'Salvar Edições'}</span>
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-300 text-xs font-semibold hover:bg-amber-100"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>Editar Pedido</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => handleEditInManualPage(activeOrder)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0f3b7d] text-white text-xs font-bold hover:bg-[#0a2e68] shadow-sm transition-colors"
+                title="Editar este pedido na tela de Pedido Manual"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Editar Pedido</span>
+              </button>
 
               <button
                 type="button"
@@ -677,7 +500,7 @@ function HistoricoContent() {
             </div>
           </div>
 
-          {/* Tabela de Itens do Pedido Ativo */}
+          {/* Tabela de Itens do Pedido Ativo (100% Somente Leitura) */}
           {isLoadingItems ? (
             <div className="p-8 text-center text-slate-400 text-xs">Carregando itens do pedido...</div>
           ) : (
@@ -693,175 +516,39 @@ function HistoricoContent() {
                     <th className="py-2.5 px-3 min-w-[100px]">Entrega</th>
                     <th className="py-2.5 px-3 min-w-[100px]">Liberação</th>
                     <th className="py-2.5 px-3 text-center w-14">Aula</th>
-                    {isEditing && <th className="py-2.5 px-3 text-right w-14">Ação</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {activeItems.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-slate-50/50">
                       <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
-                      
-                      {/* Aluno */}
-                      <td className="py-2.5 px-3 font-semibold text-slate-900">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={item.student_name}
-                            onChange={(e) => {
-                              const copy = [...activeItems];
-                              copy[idx].student_name = e.target.value;
-                              setActiveItems(copy);
-                            }}
-                            className="border border-slate-300 rounded px-1.5 py-0.5 text-xs w-full"
-                          />
-                        ) : (
-                          item.student_name
-                        )}
-                      </td>
-
-                      {/* Matéria */}
-                      <td className="py-2.5 px-3 text-slate-800">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={item.subject_name}
-                            onChange={(e) => {
-                              const copy = [...activeItems];
-                              copy[idx].subject_name = e.target.value;
-                              setActiveItems(copy);
-                            }}
-                            className="border border-slate-300 rounded px-1.5 py-0.5 text-xs w-full"
-                          />
-                        ) : (
-                          item.subject_name
-                        )}
-                      </td>
-
-                      {/* Educador */}
+                      <td className="py-2.5 px-3 font-semibold text-slate-900">{item.student_name}</td>
+                      <td className="py-2.5 px-3 text-slate-800">{item.subject_name}</td>
+                      <td className="py-2.5 px-3 text-slate-600">{item.educator_name || '—'}</td>
                       <td className="py-2.5 px-3 text-slate-600">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={item.educator_name || ''}
-                            onChange={(e) => {
-                              const copy = [...activeItems];
-                              copy[idx].educator_name = e.target.value;
-                              setActiveItems(copy);
-                            }}
-                            className="border border-slate-300 rounded px-1.5 py-0.5 text-xs w-full"
-                          />
-                        ) : (
-                          item.educator_name || '—'
-                        )}
+                        {item.delivery_date
+                          ? item.delivery_date.split('-').reverse().join('/')
+                          : '—'}
                       </td>
-
-                      {/* Data Entrega */}
-                      <td className="py-2.5 px-3 text-slate-600">
-                        {isEditing ? (
-                          <input
-                            type="date"
-                            value={item.delivery_date || ''}
-                            onChange={(e) => {
-                              const copy = [...activeItems];
-                              copy[idx].delivery_date = e.target.value;
-                              setActiveItems(copy);
-                            }}
-                            className="border border-slate-300 rounded px-1.5 py-0.5 text-xs w-full"
-                          />
-                        ) : (
-                          item.delivery_date
-                            ? item.delivery_date.split('-').reverse().join('/')
-                            : '—'
-                        )}
-                      </td>
-
-                      {/* Entrega */}
                       <td className="py-2.5 px-3">
-                        {isEditing ? (
-                          <select
-                            value={item.delivery_status || 'Entregue'}
-                            onChange={(e) => {
-                              const copy = [...activeItems];
-                              copy[idx].delivery_status = e.target.value;
-                              setActiveItems(copy);
-                            }}
-                            className="border border-slate-300 rounded px-1 py-0.5 text-xs w-full font-medium"
-                          >
-                            <option value="Entregue">Entregue</option>
-                            <option value="Pendente">Pendente</option>
-                            <option value="Não">Não</option>
-                            <option value="Sim">Sim</option>
-                          </select>
-                        ) : (
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                            item.delivery_status === 'Entregue' || item.delivery_status === 'Sim'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}>
-                            {item.delivery_status || 'Pendente'}
-                          </span>
-                        )}
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          item.delivery_status === 'Entregue' || item.delivery_status === 'Sim'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>
+                          {item.delivery_status || 'Pendente'}
+                        </span>
                       </td>
-
-                      {/* Liberação */}
                       <td className="py-2.5 px-3">
-                        {isEditing ? (
-                          <select
-                            value={item.release_status || 'Liberado'}
-                            onChange={(e) => {
-                              const copy = [...activeItems];
-                              copy[idx].release_status = e.target.value;
-                              setActiveItems(copy);
-                            }}
-                            className="border border-slate-300 rounded px-1 py-0.5 text-xs w-full font-medium"
-                          >
-                            <option value="Liberado">Liberado</option>
-                            <option value="Pendente">Pendente</option>
-                            <option value="Assinado">Assinado</option>
-                            <option value="Ok">Ok</option>
-                          </select>
-                        ) : (
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                            item.release_status === 'Liberado' || item.release_status === 'Assinado' || item.release_status === 'Ok'
-                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}>
-                            {item.release_status || 'Pendente'}
-                          </span>
-                        )}
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          item.release_status === 'Liberado' || item.release_status === 'Assinado' || item.release_status === 'Ok'
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}>
+                          {item.release_status || 'Pendente'}
+                        </span>
                       </td>
-
-                      {/* Aula */}
-                      <td className="py-2.5 px-3 text-center font-bold text-[#0f3b7d]">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            value={item.current_lesson}
-                            onChange={(e) => {
-                              const copy = [...activeItems];
-                              copy[idx].current_lesson = Number(e.target.value);
-                              setActiveItems(copy);
-                            }}
-                            className="border border-slate-300 rounded px-1 py-0.5 text-xs w-12 text-center"
-                          />
-                        ) : (
-                          item.current_lesson
-                        )}
-                      </td>
-
-                      {/* Ação */}
-                      {isEditing && (
-                        <td className="py-2.5 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveActiveItem(idx)}
-                            className="text-slate-400 hover:text-red-600 p-1"
-                            title="Remover linha"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      )}
+                      <td className="py-2.5 px-3 text-center font-bold text-[#0f3b7d]">{item.current_lesson}</td>
                     </tr>
                   ))}
                 </tbody>

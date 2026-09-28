@@ -790,8 +790,8 @@ export default function NovaOrdemPage() {
               onClick={handleEditInManualOrder}
               className="text-xs font-bold text-[#0f3b7d] hover:underline flex items-center gap-1"
             >
-              <ClipboardList className="w-3.5 h-3.5" />
-              Editar no Pedido Manual
+              <PenLine className="w-3.5 h-3.5" />
+              Editar Pedido
             </button>
             <button
               type="button"
@@ -1133,16 +1133,28 @@ export default function NovaOrdemPage() {
               </button>
             </div>
 
-            {/* Busca Rápida */}
-            <div className="relative w-72">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filtrar aluno, matéria ou educador..."
-                className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
-              />
+            {/* Ações Rápidas: Editar Pedido & Busca Rápida */}
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleEditInManualOrder}
+                className="px-3 py-1.5 rounded-lg border border-[#0f3b7d] bg-blue-50/70 text-[#0f3b7d] hover:bg-[#0f3b7d] hover:text-white font-bold text-xs transition-colors flex items-center gap-1.5 shadow-xs"
+                title="Editar este pedido na tela de Pedido Manual"
+              >
+                <PenLine className="w-3.5 h-3.5" />
+                <span>Editar Pedido</span>
+              </button>
+
+              <div className="relative w-64">
+                <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filtrar aluno, matéria ou educador..."
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
+                />
+              </div>
             </div>
           </div>
 
@@ -1571,15 +1583,15 @@ export default function NovaOrdemPage() {
                 <span>Descartar</span>
               </button>
 
-              {/* Botão para Editar no Pedido Manual */}
+              {/* Botão para Editar Pedido no Pedido Manual */}
               <button
                 type="button"
                 onClick={handleEditInManualOrder}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-blue-300 bg-blue-50 text-[#0f3b7d] font-bold text-xs hover:bg-blue-100 transition-all shadow-xs"
-                title="Abrir esses dados no editor de Pedido Manual para edição livre de alunos e matérias"
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-[#0f3b7d] bg-white text-[#0f3b7d] font-bold text-xs hover:bg-blue-50 transition-all shadow-xs"
+                title="Editar este pedido na tela de Pedido Manual"
               >
                 <PenLine className="w-4 h-4 text-[#0f3b7d]" />
-                <span>Editar no Pedido Manual ({visibleItems.length})</span>
+                <span>Editar Pedido</span>
               </button>
 
               {/* Botão de Finalizar apenas o Educador Filtrado */}
