@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Settings, Save, CheckCircle2, Sliders, Plus, X, Tag } from 'lucide-react';
+import { Settings, Save, CheckCircle2, Sliders, Plus, X, Tag, Info } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
 import { UnitSettings } from '../../types';
 import { useDialog } from '../../components/ui/dialog';
@@ -345,8 +345,9 @@ export default function ConfiguracoesPage() {
               </button>
             </div>
 
-            <p className="text-[10px] text-slate-400 italic">
-              💡 Os tipos marcados acima serão excluídos automaticamente ao importar planilhas. Remova com o X para excluir permanentemente da lista.
+            <p className="text-[10px] text-slate-500 italic flex items-center gap-1.5 mt-2">
+              <Info className="w-3.5 h-3.5 text-[#0f3b7d] shrink-0 not-italic" />
+              <span>Os tipos marcados acima serão excluídos automaticamente ao importar planilhas. Remova com o X para excluir permanentemente da lista.</span>
             </p>
           </div>
         </div>

@@ -25,7 +25,10 @@ import {
   Users,
   FileText,
   Sparkles,
-  Layers
+  Layers,
+  PenLine,
+  Zap,
+  Ban
 } from 'lucide-react';
 import {
   parseSpreadsheetBuffer,
@@ -820,7 +823,8 @@ export default function NovaOrdemPage() {
           href="/novo-pedido-manual"
           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#0f3b7d] text-white text-xs font-bold hover:bg-[#0a2e68] shadow-sm transition-all shrink-0"
         >
-          <span>✍️ Lançar Pedido Manual</span>
+          <PenLine className="w-3.5 h-3.5" />
+          <span>Lançar Pedido Manual</span>
         </Link>
       </div>
 
@@ -848,9 +852,10 @@ export default function NovaOrdemPage() {
             <button
               type="button"
               onClick={() => setTitle(`ENTREGA DE MATERIAL - PEDIDO (${filterEducator})`)}
-              className="text-[11px] text-[#0f3b7d] hover:underline font-semibold text-left flex items-center gap-1"
+              className="text-[11px] text-[#0f3b7d] hover:underline font-semibold text-left flex items-center gap-1.5"
             >
-              <span>⚡ Sugestão:</span> Título com nome de {filterEducator}
+              <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>Sugestão: Título com nome de {filterEducator}</span>
             </button>
           )}
         </div>
@@ -885,9 +890,6 @@ export default function NovaOrdemPage() {
               </div>
             </div>
           </div>
-          <p className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg mt-3">
-            ✓ Filtro ativo: Apenas alunos com <strong>Status Matéria = Ativo</strong> recebem apostila.
-          </p>
         </div>
 
         {/* Card 3: Planilha Complementar - Base de Contratos (Aluno x Educador) */}
@@ -923,8 +925,9 @@ export default function NovaOrdemPage() {
                 </p>
 
                 <div className="pt-1 flex items-center justify-between">
-                  <label className="text-[11px] text-[#0f3b7d] hover:underline font-bold cursor-pointer flex items-center gap-1">
-                    <span>🔄 Atualizar planilha</span>
+                  <label className="text-[11px] text-[#0f3b7d] hover:underline font-bold cursor-pointer flex items-center gap-1.5">
+                    <RefreshCw className="w-3 h-3 text-[#0f3b7d]" />
+                    <span>Atualizar planilha</span>
                     <input
                       type="file"
                       accept=".xls,.xlsx"
@@ -1067,16 +1070,19 @@ export default function NovaOrdemPage() {
             {/* Info sobre filtros aplicados */}
             <div className="md:col-span-7 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
               <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-200">
-                <span>📋 Matérias excluídas:</span>
+                <BookOpen className="w-3.5 h-3.5 text-slate-500" />
+                <span>Matérias excluídas:</span>
                 <strong className="text-slate-700">{ignoredSubjects.join(', ') || 'Nenhuma'}</strong>
               </div>
               <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-200">
-                <span>🚫 Contratos excluídos:</span>
+                <Ban className="w-3.5 h-3.5 text-red-500" />
+                <span>Contratos excluídos:</span>
                 <strong className="text-slate-700">{excludedContractTypes.join(', ') || 'Nenhum'}</strong>
               </div>
               {crossedEducatorsCount > 0 && (
                 <div className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1.5 rounded-md border border-emerald-200 text-emerald-800 font-semibold">
-                  <span>✨ Educadores identificados:</span>
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Educadores identificados:</span>
                   <strong>{crossedEducatorsCount} de {items.length} alunos</strong>
                 </div>
               )}
@@ -1116,13 +1122,14 @@ export default function NovaOrdemPage() {
               <button
                 type="button"
                 onClick={() => handleApplyFilter(lessonMin, lessonMax, !allLessons)}
-                className={`px-3 py-1 rounded text-xs font-semibold border transition-colors ${
+                className={`px-3 py-1 rounded text-xs font-semibold border transition-colors flex items-center gap-1.5 ${
                   allLessons
                     ? 'bg-[#0f3b7d] text-white border-[#0f3b7d]'
                     : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                 }`}
               >
-                {allLessons ? '✓ Todas as Aulas' : 'Todas as Aulas'}
+                {allLessons && <Check className="w-3.5 h-3.5" />}
+                <span>Todas as Aulas</span>
               </button>
             </div>
 
@@ -1516,7 +1523,7 @@ export default function NovaOrdemPage() {
                             Repetido
                           </span>
                         )}
-                        {!hasWarning && <span className="text-emerald-600 font-bold text-[11px]">✓</span>}
+                        {!hasWarning && <Check className="w-4 h-4 text-emerald-600 inline-block" />}
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <button
@@ -1571,8 +1578,8 @@ export default function NovaOrdemPage() {
                 className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-blue-300 bg-blue-50 text-[#0f3b7d] font-bold text-xs hover:bg-blue-100 transition-all shadow-xs"
                 title="Abrir esses dados no editor de Pedido Manual para edição livre de alunos e matérias"
               >
-                <ClipboardList className="w-4 h-4" />
-                <span>✍️ Editar no Pedido Manual ({visibleItems.length})</span>
+                <PenLine className="w-4 h-4 text-[#0f3b7d]" />
+                <span>Editar no Pedido Manual ({visibleItems.length})</span>
               </button>
 
               {/* Botão de Finalizar apenas o Educador Filtrado */}
