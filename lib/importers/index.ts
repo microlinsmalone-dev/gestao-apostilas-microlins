@@ -25,7 +25,7 @@ const adapters: ImportAdapter[] = [
 export function parseSpreadsheetBuffer(
   buffer: ArrayBuffer | Uint8Array,
   options: ImportOptions
-): ImportParseResult {
+): ImportParseResult & { rawRows: Record<string, unknown>[] } {
   const workbook = XLSX.read(buffer, { type: 'array' });
   const firstSheetName = workbook.SheetNames[0];
   if (!firstSheetName) {
@@ -49,5 +49,30 @@ export function parseSpreadsheetBuffer(
     );
   }
 
-  return matchedAdapter.parse(rawData, options);
+  const result = matchedAdapter.parse(rawData, options);
+  return { ...result, rawRows: rawData };
+}
+
+/**
+ * Processa linhas brutas já carregadas em memória aplicando novos filtros sem necessitar de re-upload
+ */
+export function parseSpreadsheetRows(
+  rawData: Record<string, unknown>[],
+  options: ImportOptions
+): ImportParseResult & { rawRows: Record<string, unknown>[] } {
+  if (!rawData || rawData.length === 0) {
+    throw new Error('A lista de registros está vazia.');
+  }
+
+  const headers = Object.keys(rawData[0]);
+  const matchedAdapter = adapters.find(a => a.canHandle(headers));
+
+  if (!matchedAdapter) {
+    throw new Error(
+      `Formato de relatório não reconhecido. Cabeçalhos encontrados: ${headers.join(', ')}.`
+    );
+  }
+
+  const result = matchedAdapter.parse(rawData, options);
+  return { ...result, rawRows: rawData };
 }

@@ -30,13 +30,16 @@ export default function ConfiguracoesPage() {
 
         if (error) throw error;
         setSettings(data);
+        if (typeof window !== 'undefined' && data) {
+          localStorage.setItem('microlins_unit_settings', JSON.stringify(data));
+        }
       } catch (err) {
         console.warn('Configurações offline ou padrão:', err);
         // Fallback default
-        setSettings({
+        const fallbackSettings: UnitSettings = {
           id: '1',
           unit_id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-          default_lesson_from: 4,
+          default_lesson_from: 2,
           default_lesson_to: 6,
           ignored_subjects: ['Digitação', 'Digitacao'],
           excluded_contract_types: ['Bolsista'],
@@ -50,7 +53,8 @@ export default function ConfiguracoesPage() {
           extra_blank_rows: 15,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        });
+        };
+        setSettings(fallbackSettings);
       } finally {
         setLoading(false);
       }
@@ -129,6 +133,9 @@ export default function ConfiguracoesPage() {
         );
 
       if (error) throw error;
+      if (typeof window !== 'undefined' && settings) {
+        localStorage.setItem('microlins_unit_settings', JSON.stringify(settings));
+      }
       setSuccessMsg(true);
       showToast('Configurações atualizadas com sucesso!', 'success');
       setTimeout(() => setSuccessMsg(false), 3000);

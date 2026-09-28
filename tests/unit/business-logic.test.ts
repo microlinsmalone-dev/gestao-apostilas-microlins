@@ -9,6 +9,7 @@ import { cleanSubject, normalizeText, formatOrderTitle } from '../../lib/domain/
 import { isEducatorIgnored, isSubjectIgnored, isEligibleContract, isLessonInRange, isSubjectStatusEligible } from '../../lib/domain/filters';
 import { createDuplicateFingerprint, analyzeDuplicates } from '../../lib/domain/duplicates';
 import { ApostilaDeliveryImportAdapter } from '../../lib/importers/apostila-delivery';
+import { parseSpreadsheetRows } from '../../lib/importers';
 import { ProcessedStudentItem } from '../../types';
 
 describe('1. Sanitização e Título', () => {
@@ -272,5 +273,70 @@ describe('4. Adaptador de Importação e Caso Real (Ana Clara)', () => {
     expect(cleanedSubject).toBe('Excel 2021');
     expect(normalizedSubject).toBe('excel 2021');
     expect(fp).toBe('carlos eduardo lima|||excel 2021');
+  });
+
+  it('deve reprocessar linhas em memória respeitando faixas configuradas de aulas (2 a 6 vs 4 a 6)', () => {
+    const rawRows = [
+      {
+        'Aluno': 'Aluno Aula 2',
+        'Status Contrato': 'Ativo',
+        'Status Matéria': 'Ativo',
+        'Inadimplente': 'Não',
+        'Entrega Física': 'Não',
+        'Tipo Contrato': 'Dinâmica',
+        'Aula Atual': 2,
+        'Matéria': 'Excel 2021',
+      },
+      {
+        'Aluno': 'Aluno Aula 3',
+        'Status Contrato': 'Ativo',
+        'Status Matéria': 'Ativo',
+        'Inadimplente': 'Não',
+        'Entrega Física': 'Não',
+        'Tipo Contrato': 'Dinâmica',
+        'Aula Atual': 3,
+        'Matéria': 'Excel 2021',
+      },
+      {
+        'Aluno': 'Aluno Aula 5',
+        'Status Contrato': 'Ativo',
+        'Status Matéria': 'Ativo',
+        'Inadimplente': 'Não',
+        'Entrega Física': 'Não',
+        'Tipo Contrato': 'Dinâmica',
+        'Aula Atual': 5,
+        'Matéria': 'Excel 2021',
+      },
+      {
+        'Aluno': 'Aluno Aula 8',
+        'Status Contrato': 'Ativo',
+        'Status Matéria': 'Ativo',
+        'Inadimplente': 'Não',
+        'Entrega Física': 'Não',
+        'Tipo Contrato': 'Dinâmica',
+        'Aula Atual': 8,
+        'Matéria': 'Excel 2021',
+      },
+    ];
+
+    // Quando faixa configurada for 2 a 6 (como solicitado pelo usuário)
+    const res2to6 = parseSpreadsheetRows(rawRows, {
+      lessonMin: 2,
+      lessonMax: 6,
+    });
+    expect(res2to6.eligibleItems.map(i => i.studentName)).toEqual([
+      'Aluno Aula 2',
+      'Aluno Aula 3',
+      'Aluno Aula 5',
+    ]);
+
+    // Quando faixa configurada for 4 a 6 (antigo padrão rígido)
+    const res4to6 = parseSpreadsheetRows(rawRows, {
+      lessonMin: 4,
+      lessonMax: 6,
+    });
+    expect(res4to6.eligibleItems.map(i => i.studentName)).toEqual([
+      'Aluno Aula 5',
+    ]);
   });
 });

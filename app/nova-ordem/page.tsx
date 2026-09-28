@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import {
   parseSpreadsheetBuffer,
+  parseSpreadsheetRows,
   parseBaseContratosBuffer,
   buildContractBaseAnalysis,
   lookupEducatorInBase,
@@ -51,10 +52,33 @@ export default function NovaOrdemPage() {
   const [title, setTitle] = useState('ENTREGA DE MATERIAL - PEDIDO');
   const [fileName, setFileName] = useState('');
   const [rawBuffer, setRawBuffer] = useState<ArrayBuffer | null>(null);
+  const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
 
-  // Filter State
-  const [lessonMin, setLessonMin] = useState(4);
-  const [lessonMax, setLessonMax] = useState(6);
+  // Filter State - inicializa lendo configuracao salva ou padrao 2 a 6
+  const [lessonMin, setLessonMin] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('microlins_unit_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (typeof parsed.default_lesson_from === 'number') return parsed.default_lesson_from;
+        }
+      } catch (e) {}
+    }
+    return 2;
+  });
+  const [lessonMax, setLessonMax] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('microlins_unit_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (typeof parsed.default_lesson_to === 'number') return parsed.default_lesson_to;
+        }
+      } catch (e) {}
+    }
+    return 6;
+  });
   const [allLessons, setAllLessons] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -151,15 +175,27 @@ export default function NovaOrdemPage() {
           .eq('unit_id', unitId)
           .single();
 
+        let configuredMin = 2;
+        let configuredMax = 6;
+
         if (settingsData) {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('microlins_unit_settings', JSON.stringify(settingsData));
+          }
           if (settingsData.ignored_subjects && settingsData.ignored_subjects.length > 0) {
             setIgnoredSubjects(settingsData.ignored_subjects);
           }
           if (settingsData.excluded_contract_types && settingsData.excluded_contract_types.length > 0) {
             setExcludedContractTypes(settingsData.excluded_contract_types);
           }
-          if (settingsData.default_lesson_from) setLessonMin(settingsData.default_lesson_from);
-          if (settingsData.default_lesson_to) setLessonMax(settingsData.default_lesson_to);
+          if (typeof settingsData.default_lesson_from === 'number') {
+            setLessonMin(settingsData.default_lesson_from);
+            configuredMin = settingsData.default_lesson_from;
+          }
+          if (typeof settingsData.default_lesson_to === 'number') {
+            setLessonMax(settingsData.default_lesson_to);
+            configuredMax = settingsData.default_lesson_to;
+          }
         }
 
         // 3. Busca itens do histórico para detecção de duplicidades
@@ -179,12 +215,14 @@ export default function NovaOrdemPage() {
         }
 
         // 4. Carrega a Base de Contratos (se salva em cache ou padrão do sistema)
+        let loadedBaseContratos: ContractBaseAnalysis | null = null;
         try {
           const savedBase = localStorage.getItem('microlins_base_contratos_cache');
           if (savedBase) {
             const parsed = JSON.parse(savedBase);
             if (Array.isArray(parsed) && parsed.length > 0) {
               const analysis = buildContractBaseAnalysis(parsed);
+              loadedBaseContratos = analysis;
               setBaseContratos(analysis);
               setBaseContratosFileName('Base Salva (Cache Local)');
               setBaseContratosSource('custom');
@@ -196,6 +234,7 @@ export default function NovaOrdemPage() {
               const data = await res.json();
               if (Array.isArray(data) && data.length > 0) {
                 const analysis = buildContractBaseAnalysis(data);
+                loadedBaseContratos = analysis;
                 setBaseContratos(analysis);
                 setBaseContratosFileName('Análise Base de Contratos (Padrão)');
                 setBaseContratosSource('system');
@@ -215,8 +254,20 @@ export default function NovaOrdemPage() {
               setItems(draft.items);
               if (draft.title) setTitle(draft.title);
               if (draft.fileName) setFileName(draft.fileName);
-              if (draft.lessonMin !== undefined) setLessonMin(draft.lessonMin);
-              if (draft.lessonMax !== undefined) setLessonMax(draft.lessonMax);
+              if (draft.rawRows && Array.isArray(draft.rawRows)) {
+                setRawRows(draft.rawRows);
+              }
+
+              // Prioriza a faixa configurada na unidade
+              const targetMin = typeof settingsData?.default_lesson_from === 'number'
+                ? settingsData.default_lesson_from
+                : (typeof draft.lessonMin === 'number' ? draft.lessonMin : configuredMin);
+              const targetMax = typeof settingsData?.default_lesson_to === 'number'
+                ? settingsData.default_lesson_to
+                : (typeof draft.lessonMax === 'number' ? draft.lessonMax : configuredMax);
+
+              setLessonMin(targetMin);
+              setLessonMax(targetMax);
               if (draft.allLessons !== undefined) setAllLessons(draft.allLessons);
               if (draft.selectedEducator) setSelectedEducator(draft.selectedEducator);
               if (draft.filterEducator) setFilterEducator(draft.filterEducator);
@@ -225,6 +276,21 @@ export default function NovaOrdemPage() {
               if (draft.historicalDuplicatesCount !== undefined) setHistoricalDuplicatesCount(draft.historicalDuplicatesCount);
               setStep(3);
               setHasRestoredDraft(true);
+
+              // Se a faixa configurada difere do rascunho e temos as linhas brutas, reprocessa imediatamente
+              if (draft.rawRows && Array.isArray(draft.rawRows) && draft.rawRows.length > 0) {
+                if (draft.lessonMin !== targetMin || draft.lessonMax !== targetMax) {
+                  reprocessRowsWithFilters(
+                    draft.rawRows,
+                    targetMin,
+                    targetMax,
+                    draft.allLessons ?? false,
+                    settingsData?.ignored_subjects || ignoredSubjects,
+                    settingsData?.excluded_contract_types || excludedContractTypes,
+                    loadedBaseContratos || baseContratos
+                  );
+                }
+              }
             }
           }
         } catch (draftErr) {
@@ -237,6 +303,65 @@ export default function NovaOrdemPage() {
 
     loadInitialData();
   }, []);
+
+  // Reprocessa registros brutos com novos filtros
+  const reprocessRowsWithFilters = (
+    rowsToProcess: Record<string, unknown>[],
+    min: number,
+    max: number,
+    all: boolean,
+    activeIgnoredSubjects = ignoredSubjects,
+    activeExcludedContracts = excludedContractTypes,
+    activeBaseContratos = baseContratos
+  ) => {
+    try {
+      const result = parseSpreadsheetRows(rowsToProcess, {
+        ignoredEducators,
+        ignoredSubjects: activeIgnoredSubjects,
+        excludedContractTypes: activeExcludedContracts,
+        lessonMin: min,
+        lessonMax: max,
+        allLessons: all,
+      });
+
+      // Aplica cruzamento com a Base de Contratos (se disponível)
+      let crossedCount = 0;
+      const itemsWithEducators = result.eligibleItems.map((item) => {
+        if (activeBaseContratos) {
+          const matchedEducator = lookupEducatorInBase(
+            {
+              studentName: item.studentName,
+              contractNumber: item.contractNumber,
+              courseName: item.courseName,
+              rawSubjectName: item.rawSubjectName,
+            },
+            activeBaseContratos
+          );
+
+          if (matchedEducator) {
+            crossedCount++;
+            return {
+              ...item,
+              educatorName: matchedEducator,
+            };
+          }
+        }
+        return item;
+      });
+
+      const duplicateAnalysis = analyzeDuplicates(itemsWithEducators, historicalMap);
+
+      setItems(duplicateAnalysis.items);
+      setInternalDuplicatesCount(duplicateAnalysis.internalDuplicatesCount);
+      setHistoricalDuplicatesCount(duplicateAnalysis.historicalDuplicatesCount);
+      setCrossedEducatorsCount(crossedCount);
+      setLessonMin(min);
+      setLessonMax(max);
+      setAllLessons(all);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Erro ao processar filtros de aula.');
+    }
+  };
 
   // Processa o buffer do arquivo com os filtros atuais e o cruzamento da base de contratos
   const processSpreadsheet = (
@@ -257,6 +382,8 @@ export default function NovaOrdemPage() {
         lessonMax,
         allLessons,
       });
+
+      setRawRows(result.rawRows);
 
       // Aplica cruzamento com a Base de Contratos (se disponível)
       let crossedCount = 0;
@@ -380,7 +507,9 @@ export default function NovaOrdemPage() {
     setLessonMax(max);
     setAllLessons(all);
 
-    if (rawBuffer) {
+    if (rawRows && rawRows.length > 0) {
+      reprocessRowsWithFilters(rawRows, min, max, all);
+    } else if (rawBuffer) {
       try {
         const result = parseSpreadsheetBuffer(rawBuffer, {
           ignoredEducators,
@@ -390,6 +519,8 @@ export default function NovaOrdemPage() {
           lessonMax: max,
           allLessons: all,
         });
+
+        setRawRows(result.rawRows);
 
         // Aplica cruzamento com base de contratos
         let crossedCount = 0;
@@ -628,6 +759,7 @@ export default function NovaOrdemPage() {
           title,
           fileName,
           items,
+          rawRows,
           step,
           lessonMin,
           lessonMax,
@@ -640,11 +772,30 @@ export default function NovaOrdemPage() {
         };
         localStorage.setItem('microlins_draft_nova_ordem', JSON.stringify(draft));
       } catch (e) {
-        console.warn('Falha ao salvar rascunho de nova ordem:', e);
+        try {
+          const draftLight = {
+            title,
+            fileName,
+            items,
+            step,
+            lessonMin,
+            lessonMax,
+            allLessons,
+            selectedEducator,
+            filterEducator,
+            crossedEducatorsCount,
+            internalDuplicatesCount,
+            historicalDuplicatesCount,
+          };
+          localStorage.setItem('microlins_draft_nova_ordem', JSON.stringify(draftLight));
+        } catch (innerE) {
+          console.warn('Falha ao salvar rascunho de nova ordem:', innerE);
+        }
       }
     }
   }, [
     items,
+    rawRows,
     title,
     fileName,
     step,
@@ -670,6 +821,7 @@ export default function NovaOrdemPage() {
         try {
           localStorage.removeItem('microlins_draft_nova_ordem');
           setItems([]);
+          setRawRows([]);
           setFileName('');
           setRawBuffer(null);
           setTitle('ENTREGA DE MATERIAL - PEDIDO');
@@ -677,6 +829,17 @@ export default function NovaOrdemPage() {
           setFilterEducator('all');
           setCrossedEducatorsCount(0);
           setHasRestoredDraft(false);
+
+          // Restaura a faixa de aulas configurada na unidade
+          try {
+            const cached = localStorage.getItem('microlins_unit_settings');
+            if (cached) {
+              const p = JSON.parse(cached);
+              if (typeof p.default_lesson_from === 'number') setLessonMin(p.default_lesson_from);
+              if (typeof p.default_lesson_to === 'number') setLessonMax(p.default_lesson_to);
+            }
+          } catch (e) {}
+
           setStep(1);
           showToast('Importação descartada com sucesso.', 'info');
         } catch {}

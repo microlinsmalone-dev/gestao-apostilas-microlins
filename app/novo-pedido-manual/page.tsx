@@ -998,7 +998,7 @@ function NovoPedidoManualContent() {
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#0f3b7d] text-white font-semibold text-xs hover:bg-[#0a2e68]"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>+ 1 Linha</span>
+              <span>1 Linha</span>
             </button>
             <button
               type="button"
@@ -1163,7 +1163,7 @@ function NovoPedidoManualContent() {
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-white"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>+ Linha</span>
+              <span>Linha</span>
             </button>
 
             {isEditMode ? (

@@ -25,6 +25,7 @@ export interface ImportParseResult {
   filteredOutSubjectsCount: number;
   filteredOutContractsCount: number;
   filteredOutLessonsCount: number;
+  rawRows?: Record<string, unknown>[];
 }
 
 export interface ImportAdapter {

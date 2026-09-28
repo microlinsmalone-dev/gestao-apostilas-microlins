@@ -26,8 +26,8 @@ export class PedagogicalControlImportAdapter implements ImportAdapter {
     let filteredContracts = 0;
     let filteredLessons = 0;
 
-    const minLesson = options.lessonMin ?? 4;
-    const maxLesson = options.lessonMax ?? 6;
+    const minLesson = typeof options.lessonMin === 'number' ? options.lessonMin : 2;
+    const maxLesson = typeof options.lessonMax === 'number' ? options.lessonMax : 6;
     const allLessons = options.allLessons ?? false;
 
     rawRows.forEach((row, index) => {
