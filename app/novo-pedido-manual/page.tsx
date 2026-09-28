@@ -23,7 +23,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
-import { cleanSubject, normalizeText, formatOrderTitle } from '../../lib/domain/sanitizer';
+import { cleanSubject, normalizeText, formatOrderTitle, toFirstName } from '../../lib/domain/sanitizer';
 import { createDuplicateFingerprint } from '../../lib/domain/duplicates';
 import { useDialog } from '../../components/ui/dialog';
 import { Educator } from '../../types';
@@ -181,7 +181,8 @@ function NovoPedidoManualContent() {
         const educatorCounts = new Map<string, number>();
         items.forEach((item) => {
           if (item.educator_name) {
-            educatorCounts.set(item.educator_name, (educatorCounts.get(item.educator_name) || 0) + 1);
+            const fn = toFirstName(item.educator_name);
+            educatorCounts.set(fn, (educatorCounts.get(fn) || 0) + 1);
           }
         });
 
@@ -200,7 +201,7 @@ function NovoPedidoManualContent() {
           id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
           studentName: item.student_name,
           subjectName: item.subject_name,
-          educatorName: item.educator_name || '',
+          educatorName: toFirstName(item.educator_name),
         }));
 
         setRows(loadedRows);
@@ -234,11 +235,15 @@ function NovoPedidoManualContent() {
         if (saved) {
           const draft = JSON.parse(saved);
           if (draft.rows && draft.rows.length > 0) {
-            setRows(draft.rows);
+            const sanitizedRows = draft.rows.map((r: any) => ({
+              ...r,
+              educatorName: toFirstName(r.educatorName),
+            }));
+            setRows(sanitizedRows);
             if (draft.title) setTitle(draft.title);
             if (draft.competenceMonth) setCompetenceMonth(draft.competenceMonth);
             if (draft.competenceYear) setCompetenceYear(draft.competenceYear);
-            if (draft.selectedEducator) setSelectedEducator(draft.selectedEducator);
+            if (draft.selectedEducator) setSelectedEducator(toFirstName(draft.selectedEducator));
             if (draft.editingOrderId) setEditingOrderId(draft.editingOrderId);
             if (draft.isEditMode !== undefined) setIsEditMode(draft.isEditMode);
             if (draft.source === 'imported_from_nova_ordem') {
@@ -369,7 +374,8 @@ function NovoPedidoManualContent() {
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
-        return { ...row, [field]: value };
+        const val = field === 'educatorName' ? toFirstName(value) : value;
+        return { ...row, [field]: val };
       })
     );
   };
@@ -912,7 +918,7 @@ function NovoPedidoManualContent() {
                             key={ed.id}
                             type="button"
                             onClick={() => {
-                              setSelectedEducator(ed.name);
+                              setSelectedEducator(toFirstName(ed.name));
                               setIsEducatorDropdownOpen(false);
                             }}
                             className={`w-full flex items-center justify-between px-3.5 py-2 text-xs text-left transition-colors ${
@@ -1109,9 +1115,9 @@ function NovoPedidoManualContent() {
                         <input
                           type="text"
                           autoComplete="off"
-                          value={row.educatorName || ''}
-                          onChange={(e) => handleRowChange(row.id, 'educatorName', e.target.value)}
-                          placeholder={selectedEducator || 'Educador do aluno'}
+                          value={toFirstName(row.educatorName) || ''}
+                          onChange={(e) => handleRowChange(row.id, 'educatorName', toFirstName(e.target.value))}
+                          placeholder={toFirstName(selectedEducator) || 'Educador do aluno'}
                           className="w-full px-3 py-1.5 border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
                         />
                       </td>

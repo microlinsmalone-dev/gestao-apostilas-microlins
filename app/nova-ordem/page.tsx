@@ -27,7 +27,9 @@ import {
   Layers,
   PenLine,
   Zap,
-  Ban
+  Ban,
+  Calendar,
+  Clock
 } from 'lucide-react';
 import {
   parseSpreadsheetBuffer,
@@ -35,10 +37,15 @@ import {
   parseBaseContratosBuffer,
   buildContractBaseAnalysis,
   lookupEducatorInBase,
-  ContractBaseAnalysis
+  ContractBaseAnalysis,
+  parseControlePedagogicoBuffer,
+  buildPedagogicalScheduleAnalysis,
+  lookupPedagogicalSchedule,
+  enrichItemsWithPedagogicalSchedule,
+  PedagogicalScheduleAnalysis
 } from '../../lib/importers';
 import { analyzeDuplicates } from '../../lib/domain/duplicates';
-import { formatOrderTitle, normalizeText } from '../../lib/domain/sanitizer';
+import { formatOrderTitle, normalizeText, toFirstName } from '../../lib/domain/sanitizer';
 import { ProcessedStudentItem, Educator } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 import { useDialog } from '../../components/ui/dialog';
@@ -89,6 +96,12 @@ export default function NovaOrdemPage() {
   const [isProcessingBaseContratos, setIsProcessingBaseContratos] = useState(false);
   const [crossedEducatorsCount, setCrossedEducatorsCount] = useState(0);
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+
+  // Controle Pedagógico (Planilha Complementar Opcional para Próxima Matéria, Turma e Horário)
+  const [controlePedagogico, setControlePedagogico] = useState<PedagogicalScheduleAnalysis | null>(null);
+  const [controlePedagogicoFileName, setControlePedagogicoFileName] = useState<string>('');
+  const [isProcessingControlePedagogico, setIsProcessingControlePedagogico] = useState(false);
+  const [matchedPedagogicalCount, setMatchedPedagogicalCount] = useState(0);
 
   // Data & Duplicates State
   const [items, setItems] = useState<ProcessedStudentItem[]>([]);
@@ -245,6 +258,23 @@ export default function NovaOrdemPage() {
           console.warn('Base de contratos padrão não encontrada automaticamente:', e);
         }
 
+        // 4b. Carrega o Controle Pedagógico (se salvo em cache local)
+        let loadedControlePedagogico: PedagogicalScheduleAnalysis | null = null;
+        try {
+          const savedControle = localStorage.getItem('microlins_controle_pedagogico_cache');
+          if (savedControle) {
+            const parsed = JSON.parse(savedControle);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const analysis = buildPedagogicalScheduleAnalysis(parsed);
+              loadedControlePedagogico = analysis;
+              setControlePedagogico(analysis);
+              setControlePedagogicoFileName('Controle Pedagógico Salvo');
+            }
+          }
+        } catch (e) {
+          console.warn('Erro ao carregar controle pedagógico do cache:', e);
+        }
+
         // 5. Restaura rascunho de importação em andamento (se houver)
         try {
           const savedDraft = localStorage.getItem('microlins_draft_nova_ordem');
@@ -272,6 +302,7 @@ export default function NovaOrdemPage() {
               if (draft.selectedEducator) setSelectedEducator(draft.selectedEducator);
               if (draft.filterEducator) setFilterEducator(draft.filterEducator);
               if (draft.crossedEducatorsCount) setCrossedEducatorsCount(draft.crossedEducatorsCount);
+              if (draft.matchedPedagogicalCount) setMatchedPedagogicalCount(draft.matchedPedagogicalCount);
               if (draft.internalDuplicatesCount !== undefined) setInternalDuplicatesCount(draft.internalDuplicatesCount);
               if (draft.historicalDuplicatesCount !== undefined) setHistoricalDuplicatesCount(draft.historicalDuplicatesCount);
               setStep(3);
@@ -287,7 +318,8 @@ export default function NovaOrdemPage() {
                     draft.allLessons ?? false,
                     settingsData?.ignored_subjects || ignoredSubjects,
                     settingsData?.excluded_contract_types || excludedContractTypes,
-                    loadedBaseContratos || baseContratos
+                    loadedBaseContratos || baseContratos,
+                    loadedControlePedagogico || controlePedagogico
                   );
                 }
               }
@@ -312,7 +344,8 @@ export default function NovaOrdemPage() {
     all: boolean,
     activeIgnoredSubjects = ignoredSubjects,
     activeExcludedContracts = excludedContractTypes,
-    activeBaseContratos = baseContratos
+    activeBaseContratos = baseContratos,
+    activeControlePedagogico = controlePedagogico
   ) => {
     try {
       const result = parseSpreadsheetRows(rowsToProcess, {
@@ -326,7 +359,7 @@ export default function NovaOrdemPage() {
 
       // Aplica cruzamento com a Base de Contratos (se disponível)
       let crossedCount = 0;
-      const itemsWithEducators = result.eligibleItems.map((item) => {
+      let enrichedItems = result.eligibleItems.map((item) => {
         if (activeBaseContratos) {
           const matchedEducator = lookupEducatorInBase(
             {
@@ -349,12 +382,21 @@ export default function NovaOrdemPage() {
         return item;
       });
 
-      const duplicateAnalysis = analyzeDuplicates(itemsWithEducators, historicalMap);
+      // Aplica enriquecimento com o Controle Pedagógico (Próxima Matéria, Turma, Horário e Telefone)
+      let pedagogicalMatched = 0;
+      if (activeControlePedagogico) {
+        const enrichedResult = enrichItemsWithPedagogicalSchedule(enrichedItems, activeControlePedagogico);
+        enrichedItems = enrichedResult.items;
+        pedagogicalMatched = enrichedResult.matchedCount;
+      }
+
+      const duplicateAnalysis = analyzeDuplicates(enrichedItems, historicalMap);
 
       setItems(duplicateAnalysis.items);
       setInternalDuplicatesCount(duplicateAnalysis.internalDuplicatesCount);
       setHistoricalDuplicatesCount(duplicateAnalysis.historicalDuplicatesCount);
       setCrossedEducatorsCount(crossedCount);
+      setMatchedPedagogicalCount(pedagogicalMatched);
       setLessonMin(min);
       setLessonMax(max);
       setAllLessons(all);
@@ -363,12 +405,13 @@ export default function NovaOrdemPage() {
     }
   };
 
-  // Processa o buffer do arquivo com os filtros atuais e o cruzamento da base de contratos
+  // Processa o buffer do arquivo com os filtros atuais, base de contratos e controle pedagógico
   const processSpreadsheet = (
     buffer: ArrayBuffer,
     overrideIgnoredSubjects?: string[],
     overrideExcludedContracts?: string[],
-    activeBaseContratos = baseContratos
+    activeBaseContratos = baseContratos,
+    activeControlePedagogico = controlePedagogico
   ) => {
     try {
       setIsProcessingFile(true);
@@ -387,7 +430,7 @@ export default function NovaOrdemPage() {
 
       // Aplica cruzamento com a Base de Contratos (se disponível)
       let crossedCount = 0;
-      const itemsWithEducators = result.eligibleItems.map((item) => {
+      let enrichedItems = result.eligibleItems.map((item) => {
         if (activeBaseContratos) {
           const matchedEducator = lookupEducatorInBase(
             {
@@ -410,13 +453,22 @@ export default function NovaOrdemPage() {
         return item;
       });
 
+      // Aplica enriquecimento com o Controle Pedagógico (Próxima Matéria, Turma, Horário)
+      let pedagogicalMatched = 0;
+      if (activeControlePedagogico) {
+        const enrichedResult = enrichItemsWithPedagogicalSchedule(enrichedItems, activeControlePedagogico);
+        enrichedItems = enrichedResult.items;
+        pedagogicalMatched = enrichedResult.matchedCount;
+      }
+
       // Aplica verificação de duplicidades internas e históricas
-      const duplicateAnalysis = analyzeDuplicates(itemsWithEducators, historicalMap);
+      const duplicateAnalysis = analyzeDuplicates(enrichedItems, historicalMap);
 
       setItems(duplicateAnalysis.items);
       setInternalDuplicatesCount(duplicateAnalysis.internalDuplicatesCount);
       setHistoricalDuplicatesCount(duplicateAnalysis.historicalDuplicatesCount);
       setCrossedEducatorsCount(crossedCount);
+      setMatchedPedagogicalCount(pedagogicalMatched);
       setFilterEducator('all');
       setStep(3); // Avança para a tabela de inspeção
     } catch (err: any) {
@@ -481,7 +533,18 @@ export default function NovaOrdemPage() {
 
             // Se a planilha principal já foi enviada, reprocessa imediatamente para cruzar os alunos
             if (rawBuffer) {
-              processSpreadsheet(rawBuffer, undefined, undefined, analysis);
+              processSpreadsheet(rawBuffer, undefined, undefined, analysis, controlePedagogico);
+            } else if (rawRows.length > 0) {
+              reprocessRowsWithFilters(
+                rawRows,
+                lessonMin,
+                lessonMax,
+                allLessons,
+                ignoredSubjects,
+                excludedContractTypes,
+                analysis,
+                controlePedagogico
+              );
             }
           }
         } catch (err: any) {
@@ -501,6 +564,76 @@ export default function NovaOrdemPage() {
     }
   };
 
+  // Upload handler da Planilha Complementar (Controle Pedagógico - Próxima Matéria, Turma e Horário)
+  const handleControlePedagogicoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsProcessingControlePedagogico(true);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const buffer = event.target?.result as ArrayBuffer;
+          if (buffer) {
+            const analysis = parseControlePedagogicoBuffer(buffer);
+            setControlePedagogico(analysis);
+            setControlePedagogicoFileName(file.name);
+
+            // Salva no localStorage para manter entre navegações
+            try {
+              const simplified = analysis.entries.map((en) => ({
+                Aluno: en.studentName,
+                'Nº Contrato': en.contractNumber,
+                'Próxima Matéria': en.nextSubject,
+                'Dias / Horários': en.classSchedule,
+                Dia: en.scheduledDay,
+                Horário: en.scheduledTime,
+                Telefone: en.phone,
+              }));
+              localStorage.setItem('microlins_controle_pedagogico_cache', JSON.stringify(simplified));
+            } catch (storageErr) {
+              console.warn('Storage limit:', storageErr);
+            }
+
+            showToast(
+              `Controle Pedagógico conectado: ${analysis.totalRows} alunos mapeados com horários e próxima matéria!`,
+              'success'
+            );
+
+            // Se a planilha principal já foi enviada, reprocessa imediatamente para cruzar
+            if (rawBuffer) {
+              processSpreadsheet(rawBuffer, undefined, undefined, baseContratos, analysis);
+            } else if (rawRows.length > 0) {
+              reprocessRowsWithFilters(
+                rawRows,
+                lessonMin,
+                lessonMax,
+                allLessons,
+                ignoredSubjects,
+                excludedContractTypes,
+                baseContratos,
+                analysis
+              );
+            }
+          }
+        } catch (err: any) {
+          showAlert(
+            err.message || 'Falha ao processar o Controle Pedagógico.',
+            'error',
+            'Arquivo Inválido'
+          );
+        } finally {
+          setIsProcessingControlePedagogico(false);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } catch (err: any) {
+      setIsProcessingControlePedagogico(false);
+      showAlert(err.message || 'Erro ao ler arquivo.', 'error', 'Erro');
+    }
+  };
+
   // Re-aplica filtros de aulas sem re-upload
   const handleApplyFilter = (min: number, max: number, all: boolean) => {
     setLessonMin(min);
@@ -508,53 +641,24 @@ export default function NovaOrdemPage() {
     setAllLessons(all);
 
     if (rawRows && rawRows.length > 0) {
-      reprocessRowsWithFilters(rawRows, min, max, all);
+      reprocessRowsWithFilters(
+        rawRows,
+        min,
+        max,
+        all,
+        ignoredSubjects,
+        excludedContractTypes,
+        baseContratos,
+        controlePedagogico
+      );
     } else if (rawBuffer) {
-      try {
-        const result = parseSpreadsheetBuffer(rawBuffer, {
-          ignoredEducators,
-          ignoredSubjects,
-          excludedContractTypes,
-          lessonMin: min,
-          lessonMax: max,
-          allLessons: all,
-        });
-
-        setRawRows(result.rawRows);
-
-        // Aplica cruzamento com base de contratos
-        let crossedCount = 0;
-        const itemsWithEducators = result.eligibleItems.map((item) => {
-          if (baseContratos) {
-            const matchedEducator = lookupEducatorInBase(
-              {
-                studentName: item.studentName,
-                contractNumber: item.contractNumber,
-                courseName: item.courseName,
-                rawSubjectName: item.rawSubjectName,
-              },
-              baseContratos
-            );
-
-            if (matchedEducator) {
-              crossedCount++;
-              return {
-                ...item,
-                educatorName: matchedEducator,
-              };
-            }
-          }
-          return item;
-        });
-
-        const duplicateAnalysis = analyzeDuplicates(itemsWithEducators, historicalMap);
-        setItems(duplicateAnalysis.items);
-        setInternalDuplicatesCount(duplicateAnalysis.internalDuplicatesCount);
-        setHistoricalDuplicatesCount(duplicateAnalysis.historicalDuplicatesCount);
-        setCrossedEducatorsCount(crossedCount);
-      } catch (err: any) {
-        setErrorMessage(err.message);
-      }
+      processSpreadsheet(
+        rawBuffer,
+        undefined,
+        undefined,
+        baseContratos,
+        controlePedagogico
+      );
     }
   };
 
@@ -767,6 +871,7 @@ export default function NovaOrdemPage() {
           selectedEducator,
           filterEducator,
           crossedEducatorsCount,
+          matchedPedagogicalCount,
           internalDuplicatesCount,
           historicalDuplicatesCount,
         };
@@ -784,6 +889,7 @@ export default function NovaOrdemPage() {
             selectedEducator,
             filterEducator,
             crossedEducatorsCount,
+            matchedPedagogicalCount,
             internalDuplicatesCount,
             historicalDuplicatesCount,
           };
@@ -805,6 +911,7 @@ export default function NovaOrdemPage() {
     selectedEducator,
     filterEducator,
     crossedEducatorsCount,
+    matchedPedagogicalCount,
     internalDuplicatesCount,
     historicalDuplicatesCount,
   ]);
@@ -828,6 +935,7 @@ export default function NovaOrdemPage() {
           setSelectedEducator('');
           setFilterEducator('all');
           setCrossedEducatorsCount(0);
+          setMatchedPedagogicalCount(0);
           setHasRestoredDraft(false);
 
           // Restaura a faixa de aulas configurada na unidade
@@ -864,14 +972,14 @@ export default function NovaOrdemPage() {
       id: item.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9)),
       studentName: item.studentName,
       subjectName: item.subjectName,
-      educatorName: selectedEducator.trim() || item.educatorName || '',
+      educatorName: toFirstName(selectedEducator.trim() || item.educatorName || ''),
     }));
 
     const draftManual = {
       title: finalTitle,
       competenceMonth: new Date().getMonth() + 1,
       competenceYear: new Date().getFullYear(),
-      selectedEducator: selectedEducator.trim() || (filterEducator !== 'all' && filterEducator !== '__unassigned__' ? filterEducator : ''),
+      selectedEducator: toFirstName(selectedEducator.trim() || (filterEducator !== 'all' && filterEducator !== '__unassigned__' ? filterEducator : '')),
       rows: manualRows,
       isEditMode: false,
       source: 'imported_from_nova_ordem',
@@ -990,10 +1098,10 @@ export default function NovaOrdemPage() {
         </Link>
       </div>
 
-      {/* ETAPA 1 & 2: Formulário de Entrada, Planilha Principal & Base de Contratos Complementar */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* ETAPA 1 & 2: Formulário de Entrada, Planilha Principal, Controle Pedagógico & Base de Contratos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
         {/* Card 1: Título do Pedido */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-3 flex flex-col justify-between">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3 flex flex-col justify-between">
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-1">
               1. Título do Pedido
@@ -1022,8 +1130,8 @@ export default function NovaOrdemPage() {
           )}
         </div>
 
-        {/* Card 2: Upload da Planilha Principal */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        {/* Card 2: Upload da Planilha Principal (Entrega de Apostilas) */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-2">
               2. Planilha Principal (.xls, .xlsx, .csv)
@@ -1047,20 +1155,90 @@ export default function NovaOrdemPage() {
                   )}
                 </p>
                 <p className="text-[10px] text-slate-400">
-                  Entrega de Apostila ou Controle Pedagógico
+                  Entrega de Apostilas
                 </p>
               </div>
             </div>
           </div>
+          <p className="text-[10px] text-slate-400 mt-2">
+            * Arquivo principal que define os alunos e as apostilas a pedir.
+          </p>
         </div>
 
-        {/* Card 3: Planilha Complementar - Base de Contratos (Aluno x Educador) */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+        {/* Card 3: Planilha Complementar - Controle Pedagógico (Opcional - Próxima Matéria, Turma e Horário) */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-[#0f3b7d] flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-[#0f3b7d]" />
+                3. Controle Pedagógico (Opcional)
+              </label>
+            </div>
+
+            {controlePedagogico ? (
+              <div className="bg-sky-50/60 border border-sky-200 rounded-xl p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-[#0f3b7d]" />
+                    <span className="text-xs font-bold text-slate-800 truncate max-w-[130px]" title={controlePedagogicoFileName}>
+                      {controlePedagogicoFileName}
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-semibold text-[#0f3b7d]">
+                    {controlePedagogico.totalRows} alunos
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-600">
+                  Próxima matéria, horários e turmas integrados
+                </p>
+
+                <div className="pt-1 flex items-center justify-between">
+                  <label className="text-[11px] text-[#0f3b7d] hover:underline font-bold cursor-pointer flex items-center gap-1.5">
+                    <RefreshCw className="w-3 h-3 text-[#0f3b7d]" />
+                    <span>Atualizar planilha</span>
+                    <input
+                      type="file"
+                      accept=".xls,.xlsx,.csv,.txt"
+                      onChange={handleControlePedagogicoUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <span className="text-[10px] text-slate-400">Cruzamento ativo</span>
+                </div>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-sky-200 hover:border-[#0f3b7d] rounded-xl p-4 text-center cursor-pointer transition-colors relative bg-sky-50/30">
+                <input
+                  type="file"
+                  accept=".xls,.xlsx,.csv,.txt"
+                  onChange={handleControlePedagogicoUpload}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                />
+                <div className="flex flex-col items-center justify-center gap-1">
+                  <Clock className="w-5 h-5 text-sky-600" />
+                  <p className="text-xs font-semibold text-slate-700">
+                    {isProcessingControlePedagogico ? 'Processando...' : 'Carregar Controle Pedagógico'}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Opcional: Próxima Matéria, Turma e Horário
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <p className="text-[10px] text-slate-400 mt-2">
+            * Consulta horários de aula, turmas e próxima matéria de cada aluno.
+          </p>
+        </div>
+
+        {/* Card 4: Planilha Complementar - Base de Contratos (Aluno x Educador) */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-bold uppercase tracking-wider text-[#0f3b7d] flex items-center gap-1.5">
                 <FileSpreadsheet className="w-3.5 h-3.5 text-[#0f3b7d]" />
-                3. Base de Contratos (Complementar)
+                4. Base de Contratos (Complementar)
               </label>
             </div>
 
@@ -1069,7 +1247,7 @@ export default function NovaOrdemPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <FileSpreadsheet className="w-4 h-4 text-[#0f3b7d]" />
-                    <span className="text-xs font-bold text-slate-800 truncate max-w-[160px]">
+                    <span className="text-xs font-bold text-slate-800 truncate max-w-[130px]" title={baseContratosFileName}>
                       {baseContratosFileName}
                     </span>
                   </div>
@@ -1241,6 +1419,13 @@ export default function NovaOrdemPage() {
                   <Users className="w-3.5 h-3.5 text-slate-500" />
                   <span>Educadores identificados:</span>
                   <strong>{crossedEducatorsCount} de {items.length} alunos</strong>
+                </div>
+              )}
+              {matchedPedagogicalCount > 0 && (
+                <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-200 text-slate-700 font-medium">
+                  <Clock className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Horários & Próxima Matéria:</span>
+                  <strong>{matchedPedagogicalCount} de {items.length} alunos</strong>
                 </div>
               )}
             </div>

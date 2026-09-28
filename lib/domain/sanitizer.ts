@@ -34,3 +34,13 @@ export function formatOrderTitle(title: string | null | undefined, defaultTitle 
   const trimmed = title.trim();
   return trimmed || defaultTitle;
 }
+
+/**
+ * Retorna apenas o primeiro nome do educador (ex: "Antonio Fagner dos Santos Silva" -> "Antonio")
+ */
+export function toFirstName(name: string | null | undefined): string {
+  if (!name || typeof name !== 'string') return '';
+  const trimmed = name.trim();
+  if (!trimmed) return '';
+  return trimmed.split(/\s+/)[0];
+}

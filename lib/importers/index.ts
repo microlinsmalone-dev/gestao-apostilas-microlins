@@ -13,6 +13,7 @@ export * from './types';
 export * from './apostila-delivery';
 export * from './pedagogical-control';
 export * from './base-contratos';
+export * from './controle-pedagogico-complementar';
 
 const adapters: ImportAdapter[] = [
   new ApostilaDeliveryImportAdapter(),
