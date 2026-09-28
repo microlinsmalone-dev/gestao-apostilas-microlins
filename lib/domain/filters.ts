@@ -61,8 +61,10 @@ export function isEligibleContract(
 /**
  * Verifica se o aluno é um educador/funcionário cadastrado a ser ignorado
  */
-export function isEducatorIgnored(studentName: string, ignoredEducators: string[]): boolean {
-  if (!studentName) return false;
+export function isEducatorIgnored(studentName: string, ignoredEducators?: string[]): boolean {
+  if (!studentName || !ignoredEducators || !Array.isArray(ignoredEducators) || ignoredEducators.length === 0) {
+    return false;
+  }
   const studentNorm = normalizeText(studentName);
 
   for (const educator of ignoredEducators) {
@@ -105,3 +107,16 @@ export function isLessonInRange(lesson: number, min = 4, max = 6, allLessons = f
   if (allLessons) return true;
   return lesson >= min && lesson <= max;
 }
+
+/**
+ * Valida se o status da matéria é elegível para pedido de material didático.
+ * Requisito: Pedir material apenas para quem estiver com Status Matéria igual a 'Ativo'.
+ * Se o campo não estiver presente ou for vazio (ex: relatórios sem essa coluna), não bloqueia.
+ */
+export function isSubjectStatusEligible(statusMateria?: string): boolean {
+  if (!statusMateria || !statusMateria.trim()) {
+    return true;
+  }
+  return normalizeText(statusMateria) === 'ativo';
+}
+

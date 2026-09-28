@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { cleanSubject, normalizeText, formatOrderTitle } from '../../lib/domain/sanitizer';
-import { isEducatorIgnored, isSubjectIgnored, isEligibleContract, isLessonInRange } from '../../lib/domain/filters';
+import { isEducatorIgnored, isSubjectIgnored, isEligibleContract, isLessonInRange, isSubjectStatusEligible } from '../../lib/domain/filters';
 import { createDuplicateFingerprint, analyzeDuplicates } from '../../lib/domain/duplicates';
 import { ApostilaDeliveryImportAdapter } from '../../lib/importers/apostila-delivery';
 import { ProcessedStudentItem } from '../../types';
@@ -107,6 +107,17 @@ describe('2. Filtros de Negócio e Exclusões', () => {
     expect(isLessonInRange(2, 4, 6, false)).toBe(false);
     expect(isLessonInRange(8, 4, 6, false)).toBe(false);
     expect(isLessonInRange(16, 4, 6, true)).toBe(true); // allLessons = true
+  });
+
+  it('deve validar Status Matéria permitindo apenas Ativo', () => {
+    expect(isSubjectStatusEligible('Ativo')).toBe(true);
+    expect(isSubjectStatusEligible('ativo')).toBe(true);
+    expect(isSubjectStatusEligible(' ATIVO ')).toBe(true);
+    expect(isSubjectStatusEligible('Concluído')).toBe(false);
+    expect(isSubjectStatusEligible('concluido')).toBe(false);
+    expect(isSubjectStatusEligible('Cancelado')).toBe(false);
+    expect(isSubjectStatusEligible(undefined)).toBe(true); // Se não presente, não bloqueia
+    expect(isSubjectStatusEligible('')).toBe(true);
   });
 });
 
@@ -219,6 +230,16 @@ describe('4. Adaptador de Importação e Caso Real (Ana Clara)', () => {
         'Aula Atual': 5,
         'Matéria': '161869_Windows 11',
       },
+      {
+        'Aluno': 'Aluno Matéria Concluída', // Deve ser ignorado por Status Matéria = Concluído
+        'Status Contrato': 'Ativo',
+        'Status Matéria': 'Concluído',
+        'Inadimplente': 'Não',
+        'Entrega Física': 'Não',
+        'Tipo Contrato': 'Dinâmica',
+        'Aula Atual': 5,
+        'Matéria': '161869_Windows 11',
+      },
     ];
 
     const result = adapter.parse(rawRows, {
@@ -227,7 +248,7 @@ describe('4. Adaptador de Importação e Caso Real (Ana Clara)', () => {
       lessonMax: 6,
     });
 
-    expect(result.filteredOutSubjectsCount).toBe(1); // Digitação
+    expect(result.filteredOutSubjectsCount).toBe(2); // Digitação + Status Matéria Concluído
     expect(result.filteredOutEducatorsCount).toBe(1); // Malone de Souza
     expect(result.eligibleItems.length).toBe(2);
 
@@ -235,6 +256,7 @@ describe('4. Adaptador de Importação e Caso Real (Ana Clara)', () => {
     expect(subjects).toContain('Auxiliar Odontológico - Saúde Bucal');
     expect(subjects).toContain('Operador de Caixa');
     expect(subjects).not.toContain('Digitação');
+    expect(result.eligibleItems.some(i => i.studentName === 'Aluno Matéria Concluída')).toBe(false);
   });
 
   it('deve processar corretamente itens manuais de listas impressas', () => {

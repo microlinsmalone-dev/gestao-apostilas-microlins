@@ -12,6 +12,7 @@ import { PedagogicalControlImportAdapter } from './pedagogical-control';
 export * from './types';
 export * from './apostila-delivery';
 export * from './pedagogical-control';
+export * from './base-contratos';
 
 const adapters: ImportAdapter[] = [
   new ApostilaDeliveryImportAdapter(),

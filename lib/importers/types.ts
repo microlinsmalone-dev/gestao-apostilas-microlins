@@ -9,7 +9,7 @@ import { RawImportRow, ProcessedStudentItem } from '../../types';
 export type ReportType = 'entrega_apostila' | 'controle_pedagogico' | 'desconhecido';
 
 export interface ImportOptions {
-  ignoredEducators: string[];
+  ignoredEducators?: string[];
   ignoredSubjects?: string[];
   excludedContractTypes?: string[];
   lessonMin?: number;

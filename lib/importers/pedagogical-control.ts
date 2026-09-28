@@ -7,7 +7,7 @@
 import { ImportAdapter, ImportOptions, ImportParseResult } from './types';
 import { ProcessedStudentItem } from '../../types';
 import { cleanSubject, normalizeText } from '../domain/sanitizer';
-import { isEligibleContract, isEducatorIgnored, isSubjectIgnored, isLessonInRange } from '../domain/filters';
+import { isEligibleContract, isEducatorIgnored, isSubjectIgnored, isLessonInRange, isSubjectStatusEligible } from '../domain/filters';
 import { createDuplicateFingerprint } from '../domain/duplicates';
 
 export class PedagogicalControlImportAdapter implements ImportAdapter {
@@ -38,6 +38,7 @@ export class PedagogicalControlImportAdapter implements ImportAdapter {
 
       const aluno = getVal('Aluno');
       const materiaBruta = getVal('Matéria') || getVal('Materia');
+      const statusMateria = getVal('Status Matéria') || getVal('Status Materia') || getVal('Situação Matéria') || getVal('Situacao Materia');
       const statusContrato = getVal('Status');
       const entregaFisica = getVal('Entrega Física') || getVal('Entrega Fisica');
       const tipoContrato = getVal('Tipo Contrato');
@@ -50,6 +51,12 @@ export class PedagogicalControlImportAdapter implements ImportAdapter {
       const proximaMateriaBruta = getVal('Próxima Matéria') || getVal('Proxima Materia');
 
       if (!aluno || !materiaBruta) return;
+
+      // Filtro de Status da Matéria (se presente na planilha)
+      if (!isSubjectStatusEligible(statusMateria)) {
+        filteredSubjects++;
+        return;
+      }
 
       // 1. Filtro de Contrato
       const isContractValid = isEligibleContract(

@@ -7,7 +7,7 @@
 import { ImportAdapter, ImportOptions, ImportParseResult } from './types';
 import { ProcessedStudentItem } from '../../types';
 import { cleanSubject, normalizeText } from '../domain/sanitizer';
-import { isEligibleContract, isEducatorIgnored, isSubjectIgnored, isLessonInRange } from '../domain/filters';
+import { isEligibleContract, isEducatorIgnored, isSubjectIgnored, isLessonInRange, isSubjectStatusEligible } from '../domain/filters';
 import { createDuplicateFingerprint } from '../domain/duplicates';
 
 export class ApostilaDeliveryImportAdapter implements ImportAdapter {
@@ -40,6 +40,7 @@ export class ApostilaDeliveryImportAdapter implements ImportAdapter {
 
       const aluno = getVal('Aluno');
       const materiaBruta = getVal('Matéria') || getVal('Materia');
+      const statusMateria = getVal('Status Matéria') || getVal('Status Materia') || getVal('Situação Matéria') || getVal('Situacao Materia') || getVal('Status da Matéria') || getVal('Status da Materia');
       const formacao = getVal('Formação') || getVal('Formacao') || getVal('Contrato Curso');
       const statusContrato = getVal('Status Contrato');
       const inadimplente = getVal('Inadimplente');
@@ -51,6 +52,12 @@ export class ApostilaDeliveryImportAdapter implements ImportAdapter {
       const contrato = getVal('Contrato');
 
       if (!aluno || !materiaBruta) return;
+
+      // 1. Filtro de Status da Matéria (Apenas 'Ativo' recebe apostila)
+      if (!isSubjectStatusEligible(statusMateria)) {
+        filteredSubjects++;
+        return;
+      }
 
       // 1. Filtro de Contrato
       const isContractValid = isEligibleContract(

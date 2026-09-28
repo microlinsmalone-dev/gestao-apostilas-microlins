@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -18,15 +18,27 @@ import {
   ClipboardList,
   UserCheck,
   ChevronDown,
-  Check
+  Check,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Users,
+  FileText,
+  Sparkles,
+  Layers
 } from 'lucide-react';
-import { parseSpreadsheetBuffer } from '../../lib/importers';
+import {
+  parseSpreadsheetBuffer,
+  parseBaseContratosBuffer,
+  buildContractBaseAnalysis,
+  lookupEducatorInBase,
+  ContractBaseAnalysis
+} from '../../lib/importers';
 import { analyzeDuplicates } from '../../lib/domain/duplicates';
-import { formatOrderTitle } from '../../lib/domain/sanitizer';
-import { ProcessedStudentItem } from '../../types';
+import { formatOrderTitle, normalizeText } from '../../lib/domain/sanitizer';
+import { ProcessedStudentItem, Educator } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 import { useDialog } from '../../components/ui/dialog';
-import { Educator } from '../../types';
 
 export default function NovaOrdemPage() {
   const router = useRouter();
@@ -44,6 +56,13 @@ export default function NovaOrdemPage() {
   const [allLessons, setAllLessons] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Base de Contratos (Planilha Complementar para Cruzamento Aluno x Educador)
+  const [baseContratos, setBaseContratos] = useState<ContractBaseAnalysis | null>(null);
+  const [baseContratosFileName, setBaseContratosFileName] = useState<string>('');
+  const [baseContratosSource, setBaseContratosSource] = useState<'system' | 'custom' | null>(null);
+  const [isProcessingBaseContratos, setIsProcessingBaseContratos] = useState(false);
+  const [crossedEducatorsCount, setCrossedEducatorsCount] = useState(0);
+
   // Data & Duplicates State
   const [items, setItems] = useState<ProcessedStudentItem[]>([]);
   const [internalDuplicatesCount, setInternalDuplicatesCount] = useState(0);
@@ -59,19 +78,30 @@ export default function NovaOrdemPage() {
   const [ignoredSubjects, setIgnoredSubjects] = useState<string[]>(['Digitação', 'Digitacao']);
   const [excludedContractTypes, setExcludedContractTypes] = useState<string[]>(['Bolsista']);
 
-  // Educador único por pedido
+  // Educador único por pedido (override manual opcional)
   const [selectedEducator, setSelectedEducator] = useState('');
   const [educators, setEducators] = useState<Educator[]>([]);
   const [isEducatorDropdownOpen, setIsEducatorDropdownOpen] = useState(false);
   const [educatorSearch, setEducatorSearch] = useState('');
   const educatorDropdownRef = useRef<HTMLDivElement | null>(null);
 
+  // Filtro por Educador e Ordenação na Tabela de Inspeção
+  const [filterEducator, setFilterEducator] = useState<string>('all');
+  const [isEducatorFilterMenuOpen, setIsEducatorFilterMenuOpen] = useState(false);
+  const [educatorFilterSearch, setEducatorFilterSearch] = useState('');
+  const educatorFilterMenuRef = useRef<HTMLTableCellElement | null>(null);
+
+  const [sortField, setSortField] = useState<
+    'index' | 'studentName' | 'subjectName' | 'educatorName' | 'currentLesson' | 'classSchedule'
+  >('index');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
   // Loading States
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Fecha dropdown do educador ao clicar fora
+  // Fecha dropdowns ao clicar fora
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -80,6 +110,12 @@ export default function NovaOrdemPage() {
       ) {
         setIsEducatorDropdownOpen(false);
       }
+      if (
+        educatorFilterMenuRef.current &&
+        !educatorFilterMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsEducatorFilterMenuOpen(false);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
@@ -87,13 +123,13 @@ export default function NovaOrdemPage() {
     };
   }, []);
 
-  // Carrega educadores, settings e histórico existente do Supabase
+  // Carrega educadores, settings, histórico existente e base de contratos padrão
   useEffect(() => {
     async function loadInitialData() {
       try {
         const unitId = process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
-        // Busca educadores cadastrados (para ignorar no import E para o dropdown de seleção)
+        // 1. Busca educadores cadastrados
         const { data: educatorsData } = await supabase
           .from('educators')
           .select('*')
@@ -105,7 +141,7 @@ export default function NovaOrdemPage() {
           setEducators(educatorsData);
         }
 
-        // Busca configurações da unidade (matérias ignoradas + tipos de contrato excluídos)
+        // 2. Busca configurações da unidade
         const { data: settingsData } = await supabase
           .from('unit_settings')
           .select('*')
@@ -123,7 +159,7 @@ export default function NovaOrdemPage() {
           if (settingsData.default_lesson_to) setLessonMax(settingsData.default_lesson_to);
         }
 
-        // Busca itens do histórico para detecção de duplicidades históricas
+        // 3. Busca itens do histórico para detecção de duplicidades
         const { data: existingItems } = await supabase
           .from('order_items')
           .select('duplicate_fingerprint, orders(title)');
@@ -138,6 +174,34 @@ export default function NovaOrdemPage() {
           });
           setHistoricalMap(hist);
         }
+
+        // 4. Carrega a Base de Contratos (se salva em cache ou padrão do sistema)
+        try {
+          const savedBase = localStorage.getItem('microlins_base_contratos_cache');
+          if (savedBase) {
+            const parsed = JSON.parse(savedBase);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const analysis = buildContractBaseAnalysis(parsed);
+              setBaseContratos(analysis);
+              setBaseContratosFileName('Base Salva (Cache Local)');
+              setBaseContratosSource('custom');
+            }
+          } else {
+            // Tenta carregar o base_contratos.json disponibilizado
+            const res = await fetch('./base_contratos.json');
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data) && data.length > 0) {
+                const analysis = buildContractBaseAnalysis(data);
+                setBaseContratos(analysis);
+                setBaseContratosFileName('Análise Base de Contratos (Padrão)');
+                setBaseContratosSource('system');
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Base de contratos padrão não encontrada automaticamente:', e);
+        }
       } catch (err) {
         console.warn('Supabase offline ou tabelas pendentes:', err);
       }
@@ -146,11 +210,12 @@ export default function NovaOrdemPage() {
     loadInitialData();
   }, []);
 
-  // Processa o buffer do arquivo com os filtros atuais
+  // Processa o buffer do arquivo com os filtros atuais e o cruzamento da base de contratos
   const processSpreadsheet = (
     buffer: ArrayBuffer,
     overrideIgnoredSubjects?: string[],
-    overrideExcludedContracts?: string[]
+    overrideExcludedContracts?: string[],
+    activeBaseContratos = baseContratos
   ) => {
     try {
       setIsProcessingFile(true);
@@ -165,12 +230,39 @@ export default function NovaOrdemPage() {
         allLessons,
       });
 
+      // Aplica cruzamento com a Base de Contratos (se disponível)
+      let crossedCount = 0;
+      const itemsWithEducators = result.eligibleItems.map((item) => {
+        if (activeBaseContratos) {
+          const matchedEducator = lookupEducatorInBase(
+            {
+              studentName: item.studentName,
+              contractNumber: item.contractNumber,
+              courseName: item.courseName,
+              rawSubjectName: item.rawSubjectName,
+            },
+            activeBaseContratos
+          );
+
+          if (matchedEducator) {
+            crossedCount++;
+            return {
+              ...item,
+              educatorName: matchedEducator,
+            };
+          }
+        }
+        return item;
+      });
+
       // Aplica verificação de duplicidades internas e históricas
-      const duplicateAnalysis = analyzeDuplicates(result.eligibleItems, historicalMap);
+      const duplicateAnalysis = analyzeDuplicates(itemsWithEducators, historicalMap);
 
       setItems(duplicateAnalysis.items);
       setInternalDuplicatesCount(duplicateAnalysis.internalDuplicatesCount);
       setHistoricalDuplicatesCount(duplicateAnalysis.historicalDuplicatesCount);
+      setCrossedEducatorsCount(crossedCount);
+      setFilterEducator('all');
       setStep(3); // Avança para a tabela de inspeção
     } catch (err: any) {
       setErrorMessage(err.message || 'Erro ao processar arquivo.');
@@ -179,7 +271,7 @@ export default function NovaOrdemPage() {
     }
   };
 
-  // Upload handler
+  // Upload handler da Planilha Principal
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -194,6 +286,64 @@ export default function NovaOrdemPage() {
       }
     };
     reader.readAsArrayBuffer(file);
+  };
+
+  // Upload handler da Planilha Complementar (Análise Base de Contratos)
+  const handleBaseContratosUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsProcessingBaseContratos(true);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const buffer = event.target?.result as ArrayBuffer;
+          if (buffer) {
+            const analysis = parseBaseContratosBuffer(buffer);
+            setBaseContratos(analysis);
+            setBaseContratosFileName(file.name);
+            setBaseContratosSource('custom');
+
+            // Salva no localStorage para não precisar enviar novamente a cada sessão
+            try {
+              const simplified = analysis.entries.map((en) => ({
+                Nome: en.studentName,
+                Educador: en.educatorName,
+                Contrato: en.contractNumber,
+                Formações: en.courseName,
+                'Tipo Contrato': en.contractType,
+              }));
+              localStorage.setItem('microlins_base_contratos_cache', JSON.stringify(simplified));
+            } catch (storageErr) {
+              console.warn('Storage limit:', storageErr);
+            }
+
+            showToast(
+              `Base de Contratos conectada: ${analysis.totalRows} registros e ${analysis.educators.length} educadores mapeados!`,
+              'success'
+            );
+
+            // Se a planilha principal já foi enviada, reprocessa imediatamente para cruzar os alunos
+            if (rawBuffer) {
+              processSpreadsheet(rawBuffer, undefined, undefined, analysis);
+            }
+          }
+        } catch (err: any) {
+          showAlert(
+            err.message || 'Falha ao processar a Base de Contratos.',
+            'error',
+            'Arquivo Inválido'
+          );
+        } finally {
+          setIsProcessingBaseContratos(false);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } catch (err: any) {
+      setIsProcessingBaseContratos(false);
+      showAlert(err.message || 'Erro ao ler arquivo.', 'error', 'Erro');
+    }
   };
 
   // Re-aplica filtros de aulas sem re-upload
@@ -213,10 +363,36 @@ export default function NovaOrdemPage() {
           allLessons: all,
         });
 
-        const duplicateAnalysis = analyzeDuplicates(result.eligibleItems, historicalMap);
+        // Aplica cruzamento com base de contratos
+        let crossedCount = 0;
+        const itemsWithEducators = result.eligibleItems.map((item) => {
+          if (baseContratos) {
+            const matchedEducator = lookupEducatorInBase(
+              {
+                studentName: item.studentName,
+                contractNumber: item.contractNumber,
+                courseName: item.courseName,
+                rawSubjectName: item.rawSubjectName,
+              },
+              baseContratos
+            );
+
+            if (matchedEducator) {
+              crossedCount++;
+              return {
+                ...item,
+                educatorName: matchedEducator,
+              };
+            }
+          }
+          return item;
+        });
+
+        const duplicateAnalysis = analyzeDuplicates(itemsWithEducators, historicalMap);
         setItems(duplicateAnalysis.items);
         setInternalDuplicatesCount(duplicateAnalysis.internalDuplicatesCount);
         setHistoricalDuplicatesCount(duplicateAnalysis.historicalDuplicatesCount);
+        setCrossedEducatorsCount(crossedCount);
       } catch (err: any) {
         setErrorMessage(err.message);
       }
@@ -232,9 +408,91 @@ export default function NovaOrdemPage() {
     setHistoricalDuplicatesCount(duplicateAnalysis.historicalDuplicatesCount);
   };
 
-  // Finalização e salvamento no Supabase
-  const handleFinalizeOrder = async () => {
-    if (items.length === 0) {
+  // Contagem de apostilas por educador
+  const educatorCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((item) => {
+      const ed = item.educatorName?.trim() || 'Sem Educador';
+      counts[ed] = (counts[ed] || 0) + 1;
+    });
+    return counts;
+  }, [items]);
+
+  // Lista ordenada de educadores com alunos presentes
+  const distinctEducatorsWithCounts = useMemo(() => {
+    return Object.entries(educatorCounts).sort((a, b) => {
+      if (a[0] === 'Sem Educador') return 1;
+      if (b[0] === 'Sem Educador') return -1;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [educatorCounts]);
+
+  // Alterna ordenação de coluna
+  const handleSort = (
+    field: 'index' | 'studentName' | 'subjectName' | 'educatorName' | 'currentLesson' | 'classSchedule'
+  ) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // Itens visíveis filtrados e ordenados
+  const visibleItems = useMemo(() => {
+    let list = items;
+
+    // Filtro por Educador (da aba ou rótulo de coluna)
+    if (filterEducator !== 'all') {
+      if (filterEducator === '__unassigned__') {
+        list = list.filter((i) => !i.educatorName?.trim());
+      } else {
+        list = list.filter((i) => i.educatorName?.trim() === filterEducator);
+      }
+    }
+
+    // Filtro por texto digitado
+    if (searchQuery.trim()) {
+      const q = normalizeText(searchQuery);
+      list = list.filter(
+        (i) =>
+          i.studentNameNormalized.includes(q) ||
+          i.subjectNameNormalized.includes(q) ||
+          normalizeText(i.educatorName || '').includes(q) ||
+          normalizeText(i.rawSubjectName || '').includes(q)
+      );
+    }
+
+    // Ordenação dinâmica
+    return [...list].sort((a, b) => {
+      let valA: any = a[sortField as keyof ProcessedStudentItem] || '';
+      let valB: any = b[sortField as keyof ProcessedStudentItem] || '';
+
+      if (sortField === 'index') {
+        valA = a.sourceRowNumber || 0;
+        valB = b.sourceRowNumber || 0;
+      } else if (sortField === 'educatorName') {
+        valA = selectedEducator || a.educatorName || '';
+        valB = selectedEducator || b.educatorName || '';
+      }
+
+      if (typeof valA === 'string') {
+        const res = valA.localeCompare(valB, 'pt-BR');
+        return sortDirection === 'asc' ? res : -res;
+      }
+
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [items, filterEducator, searchQuery, sortField, sortDirection, selectedEducator]);
+
+  // Finalização do pedido: Salva apenas os itens do educador filtrado OU todos os itens
+  const handleFinalizeOrder = async (onlyFilteredEducator = false) => {
+    const itemsToSave = onlyFilteredEducator ? visibleItems : items;
+
+    if (itemsToSave.length === 0) {
       showAlert('Não há itens válidos para gerar o pedido.', 'warning', 'Pedido Vazio');
       return;
     }
@@ -242,8 +500,16 @@ export default function NovaOrdemPage() {
     try {
       setIsSaving(true);
       const unitId = process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-      const cleanTitle = formatOrderTitle(title);
       const now = new Date();
+
+      // Ajusta título se estiver separando por educador
+      let finalTitle = title;
+      if (onlyFilteredEducator && filterEducator !== 'all' && filterEducator !== '__unassigned__') {
+        if (!title.toLowerCase().includes(filterEducator.toLowerCase())) {
+          finalTitle = `${title} (${filterEducator})`;
+        }
+      }
+      const cleanTitle = formatOrderTitle(finalTitle);
 
       // 1. Obtém sequência de ordem
       const { data: seqData } = await supabase.rpc('get_next_order_sequence', {
@@ -264,15 +530,15 @@ export default function NovaOrdemPage() {
           status: 'open',
           competence_month: now.getMonth() + 1,
           competence_year: now.getFullYear(),
-          total_items: items.length,
+          total_items: itemsToSave.length,
         })
         .select()
         .single();
 
       if (orderError) throw orderError;
 
-      // 3. Grava itens do pedido (com o educador selecionado)
-      const itemsToInsert = items.map((item, idx) => ({
+      // 3. Grava itens do pedido com os educadores individuais cruzados
+      const itemsToInsert = itemsToSave.map((item, idx) => ({
         order_id: orderData.id,
         student_name: item.studentName,
         student_name_normalized: item.studentNameNormalized,
@@ -298,8 +564,21 @@ export default function NovaOrdemPage() {
       const { error: itemsError } = await supabase.from('order_items').insert(itemsToInsert);
       if (itemsError) throw itemsError;
 
-      showToast(`Pedido ${orderNumber} criado com sucesso com ${items.length} apostilas!`, 'success');
-      router.push('/historico');
+      // Se salvou apenas um educador e ainda restam outros alunos na lista
+      if (onlyFilteredEducator && itemsToSave.length < items.length) {
+        const savedIds = new Set(itemsToSave.map((i) => i.id));
+        const remaining = items.filter((i) => !savedIds.has(i.id));
+
+        setItems(remaining);
+        setFilterEducator('all');
+        showToast(
+          `Pedido ${orderNumber} criado para ${filterEducator} (${itemsToSave.length} apostilas)! Restam ${remaining.length} alunos na lista.`,
+          'success'
+        );
+      } else {
+        showToast(`Pedido ${orderNumber} criado com sucesso com ${itemsToSave.length} apostilas!`, 'success');
+        router.push('/historico');
+      }
     } catch (err: any) {
       console.error('Erro ao finalizar pedido:', err);
       showAlert(
@@ -311,16 +590,6 @@ export default function NovaOrdemPage() {
       setIsSaving(false);
     }
   };
-
-  const filteredItems = items.filter((item) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      item.studentName.toLowerCase().includes(q) ||
-      item.subjectName.toLowerCase().includes(q) ||
-      (item.educatorName && item.educatorName.toLowerCase().includes(q))
-    );
-  });
 
   const filteredEducators = educators.filter((ed) =>
     ed.name.toLowerCase().includes(educatorSearch.toLowerCase())
@@ -336,7 +605,7 @@ export default function NovaOrdemPage() {
             Central de Gestão • Novo Pedido
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Importação inteligente, conferência de matérias, duplicidades e emissão oficial
+            Importação inteligente com cruzamento de educadores, conferência de matérias e separação de pedidos
           </p>
         </div>
 
@@ -399,68 +668,155 @@ export default function NovaOrdemPage() {
         </Link>
       </div>
 
-      {/* ETAPA 1 & 2: Formulário de Entrada & Upload */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Título do Pedido */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-3">
-          <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block">
-            1. Título do Pedido
-          </label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Ex: ENTREGA DE MATERIAL - 1º PEDIDO OUTUBRO"
-            className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#0f3b7d] font-medium"
-          />
-          <p className="text-[11px] text-slate-400">
-            * O sistema preserva rigorosamente maiúsculas e minúsculas conforme digitado.
+      {/* ETAPA 1 & 2: Formulário de Entrada, Planilha Principal & Base de Contratos Complementar */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Card 1: Título do Pedido */}
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-3 flex flex-col justify-between">
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-1">
+              1. Título do Pedido
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Ex: ENTREGA DE MATERIAL - PEDIDO"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#0f3b7d] font-medium"
+            />
+            <p className="text-[11px] text-slate-400 mt-2">
+              * O sistema preserva exatamente maiúsculas e minúsculas conforme digitado.
+            </p>
+          </div>
+
+          {filterEducator !== 'all' && filterEducator !== '__unassigned__' && (
+            <button
+              type="button"
+              onClick={() => setTitle(`ENTREGA DE MATERIAL - PEDIDO (${filterEducator})`)}
+              className="text-[11px] text-[#0f3b7d] hover:underline font-semibold text-left flex items-center gap-1"
+            >
+              <span>⚡ Sugestão:</span> Título com nome de {filterEducator}
+            </button>
+          )}
+        </div>
+
+        {/* Card 2: Upload da Planilha Principal */}
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-2">
+              2. Planilha Principal (.xls, .xlsx, .csv)
+            </label>
+            <div className="border-2 border-dashed border-slate-300 hover:border-[#0f3b7d] rounded-xl p-4 text-center cursor-pointer transition-colors relative bg-slate-50/50">
+              <input
+                type="file"
+                accept=".xls,.xlsx,.csv,.txt"
+                onChange={handleFileUpload}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+              <div className="flex flex-col items-center justify-center gap-1.5">
+                <div className="w-9 h-9 rounded-full bg-blue-50 text-[#0f3b7d] flex items-center justify-center">
+                  <Upload className="w-4 h-4" />
+                </div>
+                <p className="text-xs font-semibold text-slate-700">
+                  {fileName ? (
+                    <span className="text-[#0f3b7d] font-bold">{fileName}</span>
+                  ) : (
+                    'Arraste o relatório de entrega aqui'
+                  )}
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  Entrega de Apostila ou Controle Pedagógico
+                </p>
+              </div>
+            </div>
+          </div>
+          <p className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg mt-3">
+            ✓ Filtro ativo: Apenas alunos com <strong>Status Matéria = Ativo</strong> recebem apostila.
           </p>
         </div>
 
-        {/* Upload de Planilha */}
-        <div className="md:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-center">
-          <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-2">
-            2. Upload da Planilha (.xls, .xlsx, .csv)
-          </label>
-          <div className="border-2 border-dashed border-slate-300 hover:border-[#0f3b7d] rounded-xl p-5 text-center cursor-pointer transition-colors relative bg-slate-50/50">
-            <input
-              type="file"
-              accept=".xls,.xlsx,.csv,.txt"
-              onChange={handleFileUpload}
-              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-            />
-            <div className="flex flex-col items-center justify-center gap-2">
-              <div className="w-10 h-10 rounded-full bg-blue-50 text-[#0f3b7d] flex items-center justify-center">
-                <Upload className="w-5 h-5" />
-              </div>
-              <p className="text-xs font-semibold text-slate-700">
-                {fileName ? (
-                  <span className="text-[#0f3b7d]">{fileName} (Carregado)</span>
-                ) : (
-                  'Arraste o relatório exportado aqui ou clique para selecionar'
-                )}
-              </p>
-              <p className="text-[11px] text-slate-400">
-                Suporta: Relatório de Entrega de Apostila e Controle Pedagógico
-              </p>
+        {/* Card 3: Planilha Complementar - Base de Contratos (Aluno x Educador) */}
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold uppercase tracking-wider text-[#0f3b7d] flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                3. Base de Contratos (Complementar)
+              </label>
+              {baseContratos && (
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+                  Ativa
+                </span>
+              )}
             </div>
+
+            {baseContratos ? (
+              <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-[#0f3b7d]" />
+                    <span className="text-xs font-bold text-slate-800 truncate max-w-[160px]">
+                      {baseContratosFileName}
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-semibold text-[#0f3b7d]">
+                    {baseContratos.totalRows} contratos
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-600 line-clamp-1">
+                  Educadores: {baseContratos.educators.join(', ')}
+                </p>
+
+                <div className="pt-1 flex items-center justify-between">
+                  <label className="text-[11px] text-[#0f3b7d] hover:underline font-bold cursor-pointer flex items-center gap-1">
+                    <span>🔄 Atualizar planilha</span>
+                    <input
+                      type="file"
+                      accept=".xls,.xlsx"
+                      onChange={handleBaseContratosUpload}
+                      className="hidden"
+                    />
+                  </label>
+                  <span className="text-[10px] text-slate-400">Cruzamento automático</span>
+                </div>
+              </div>
+            ) : (
+              <div className="border-2 border-dashed border-indigo-200 hover:border-[#0f3b7d] rounded-xl p-4 text-center cursor-pointer transition-colors relative bg-indigo-50/30">
+                <input
+                  type="file"
+                  accept=".xls,.xlsx"
+                  onChange={handleBaseContratosUpload}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                />
+                <div className="flex flex-col items-center justify-center gap-1">
+                  <Users className="w-5 h-5 text-indigo-600" />
+                  <p className="text-xs font-semibold text-slate-700">
+                    {isProcessingBaseContratos ? 'Processando...' : 'Carregar Análise Base de Contratos'}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Cruza automaticamente Aluno x Educador
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
+
+          <p className="text-[10px] text-slate-400 mt-2">
+            * Vincula cada aluno ao seu respectivo educador pelo número de contrato e nome.
+          </p>
         </div>
       </div>
 
-      {/* Seletor de Educador do Pedido (aparece após upload) */}
+      {/* Seletor Geral de Educador & Informações de Regras */}
       {items.length > 0 && (
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-end">
-            {/* Educador (Caixinha Personalizada do Sistema) */}
+            {/* Educador Global (Override opcional) */}
             <div className="md:col-span-5" ref={educatorDropdownRef}>
               <label className="block text-xs font-bold text-[#0f3b7d] mb-1.5 flex items-center gap-1.5">
                 <UserCheck className="w-4 h-4" />
-                Educador deste Pedido (Opcional)
+                Sobrescrever Educador de Toda a Lista (Opcional)
               </label>
               <div className="relative">
-                {/* Botão seletor personalizado */}
                 <button
                   type="button"
                   onClick={() => {
@@ -470,11 +826,11 @@ export default function NovaOrdemPage() {
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left text-xs font-semibold transition-all ${
                     selectedEducator
                       ? 'border-[#0f3b7d] bg-blue-50/40 text-slate-900 shadow-sm'
-                      : 'border-slate-300 bg-white text-slate-400 hover:border-slate-400'
+                      : 'border-slate-300 bg-white text-slate-500 hover:border-slate-400'
                   }`}
                 >
                   <span className="truncate">
-                    {selectedEducator || 'Selecione o educador responsável...'}
+                    {selectedEducator || 'Usar educadores individuais cruzados na lista'}
                   </span>
                   <ChevronDown
                     className={`w-4 h-4 text-slate-400 transition-transform ${
@@ -483,10 +839,8 @@ export default function NovaOrdemPage() {
                   />
                 </button>
 
-                {/* Menu suspenso personalizado */}
                 {isEducatorDropdownOpen && (
                   <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl border border-slate-200 shadow-2xl z-50 py-2 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
-                    {/* Busca rápida se houver mais de 4 educadores */}
                     {educators.length > 4 && (
                       <div className="px-3 pb-2 border-b border-slate-100">
                         <div className="relative">
@@ -504,7 +858,6 @@ export default function NovaOrdemPage() {
                     )}
 
                     <div className="max-h-56 overflow-y-auto divide-y divide-slate-50">
-                      {/* Opção de limpar seleção */}
                       {selectedEducator && (
                         <button
                           type="button"
@@ -512,9 +865,9 @@ export default function NovaOrdemPage() {
                             setSelectedEducator('');
                             setIsEducatorDropdownOpen(false);
                           }}
-                          className="w-full flex items-center px-3.5 py-2 text-xs text-left text-slate-400 hover:bg-slate-50 italic"
+                          className="w-full flex items-center px-3.5 py-2 text-xs text-left text-slate-500 hover:bg-slate-50 italic"
                         >
-                          Nenhum (usar educador do relatório)
+                          Limpar (usar educadores individuais cruzados)
                         </button>
                       )}
                       {filteredEducators.length === 0 ? (
@@ -551,7 +904,7 @@ export default function NovaOrdemPage() {
                 )}
               </div>
               <p className="text-[10px] text-slate-400 mt-1">
-                Se não selecionar, será usado o educador do próprio relatório (quando disponível).
+                Deixe vazio para manter o educador de cada aluno identificado pela Base de Contratos.
               </p>
             </div>
 
@@ -565,15 +918,21 @@ export default function NovaOrdemPage() {
                 <span>🚫 Contratos excluídos:</span>
                 <strong className="text-slate-700">{excludedContractTypes.join(', ') || 'Nenhum'}</strong>
               </div>
+              {crossedEducatorsCount > 0 && (
+                <div className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1.5 rounded-md border border-emerald-200 text-emerald-800 font-semibold">
+                  <span>✨ Educadores identificados:</span>
+                  <strong>{crossedEducatorsCount} de {items.length} alunos</strong>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ETAPA 3: Inspeção e Curadoria da Tabela */}
+      {/* ETAPA 3: Inspeção, Curadoria e Separação por Educador */}
       {items.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden space-y-4 p-6">
-          {/* Barra de Filtros e Ferramentas */}
+          {/* Barra Superior: Faixa de Aulas, Busca e Resumos */}
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
@@ -612,25 +971,134 @@ export default function NovaOrdemPage() {
             </div>
 
             {/* Busca Rápida */}
-            <div className="relative w-64">
+            <div className="relative w-72">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filtrar aluno ou matéria..."
+                placeholder="Filtrar aluno, matéria ou educador..."
                 className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
               />
             </div>
           </div>
 
+          {/* Abas de Filtragem Rápida por Educador (Separação Rápida de Pedidos) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-[#0f3b7d]" />
+                Filtrar Pedido por Educador:
+              </span>
+              {filterEducator !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setFilterEducator('all')}
+                  className="text-[11px] text-[#0f3b7d] hover:underline font-semibold"
+                >
+                  Mostrar todos os educadores ({items.length})
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Botão Todos */}
+              <button
+                type="button"
+                onClick={() => setFilterEducator('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  filterEducator === 'all'
+                    ? 'bg-[#0f3b7d] text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>Todos</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                    filterEducator === 'all' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {items.length}
+                </span>
+              </button>
+
+              {/* Botões individuais por educador */}
+              {distinctEducatorsWithCounts.map(([educatorName, count]) => {
+                const isSelected = filterEducator === educatorName;
+                const isUnassigned = educatorName === 'Sem Educador';
+
+                return (
+                  <button
+                    key={educatorName}
+                    type="button"
+                    onClick={() => setFilterEducator(isUnassigned ? '__unassigned__' : educatorName)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      (isUnassigned && filterEducator === '__unassigned__') || isSelected
+                        ? 'bg-[#0f3b7d] text-white shadow-sm'
+                        : isUnassigned
+                        ? 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    <span>{educatorName}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                        (isUnassigned && filterEducator === '__unassigned__') || isSelected
+                          ? 'bg-white/20 text-white'
+                          : isUnassigned
+                          ? 'bg-amber-200 text-amber-900'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Banner de Separação Ativa por Educador */}
+          {filterEducator !== 'all' && filterEducator !== '__unassigned__' && (
+            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-150">
+              <div className="flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-[#0f3b7d] shrink-0" />
+                <div>
+                  <h4 className="text-xs font-bold text-[#0f3b7d]">
+                    Visualizando pedido exclusivo de: {filterEducator}
+                  </h4>
+                  <p className="text-[11px] text-slate-600">
+                    Você pode finalizar apenas as <strong>{visibleItems.length} apostilas</strong> deste educador para gerar a ordem separada.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleFinalizeOrder(true)}
+                  disabled={isSaving || visibleItems.length === 0}
+                  className="inline-flex items-center gap-1.5 bg-[#0f3b7d] hover:bg-[#0a2e68] text-white px-3.5 py-1.5 rounded-lg font-bold text-xs shadow-sm transition-all disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Finalizar Apenas {filterEducator.split(' ')[0]} ({visibleItems.length})</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Alertas de Duplicidade */}
           <div className="flex flex-wrap gap-3">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-50 text-[#0f3b7d] text-xs font-semibold border border-blue-100">
-              <span>Total Aprovado:</span>
+              <span>Exibindo:</span>
               <span className="bg-white px-2 py-0.5 rounded font-bold shadow-xs">
-                {items.length} alunos
+                {visibleItems.length} {visibleItems.length === 1 ? 'aluno' : 'alunos'}
               </span>
+              {filterEducator !== 'all' && (
+                <span className="text-slate-500 font-normal">
+                  (de {items.length} totais)
+                </span>
+              )}
             </div>
 
             {internalDuplicatesCount > 0 && (
@@ -648,25 +1116,194 @@ export default function NovaOrdemPage() {
             )}
           </div>
 
-          {/* Tabela de Inspeção */}
+          {/* Tabela de Inspeção com Ordenação e Filtro nos Rótulos de Colunas */}
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider">
+              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider select-none">
                 <tr>
-                  <th className="py-2.5 px-3">#</th>
-                  <th className="py-2.5 px-3">Aluno</th>
-                  <th className="py-2.5 px-3">Matéria Higienizada</th>
-                  <th className="py-2.5 px-3">Educador</th>
-                  <th className="py-2.5 px-3 text-center">Aula</th>
-                  <th className="py-2.5 px-3">Turma / Horário</th>
+                  <th
+                    className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors w-12"
+                    onClick={() => handleSort('index')}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>#</span>
+                      {sortField === 'index' && (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleSort('studentName')}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Aluno</span>
+                      {sortField === 'studentName' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleSort('subjectName')}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Matéria Higienizada</span>
+                      {sortField === 'subjectName' ? (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                      )}
+                    </div>
+                  </th>
+
+                  {/* Coluna Educador com Filtro de Rótulo (Dropdown Excel) */}
+                  <th className="py-2.5 px-3 relative" ref={educatorFilterMenuRef}>
+                    <div className="flex items-center justify-between gap-1">
+                      <div
+                        className="flex items-center gap-1.5 cursor-pointer hover:text-[#0f3b7d] transition-colors"
+                        onClick={() => handleSort('educatorName')}
+                      >
+                        <span>Educador</span>
+                        {sortField === 'educatorName' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                        )}
+                      </div>
+
+                      {/* Botão de Filtro no Rótulo */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsEducatorFilterMenuOpen((prev) => !prev);
+                        }}
+                        className={`p-1 rounded transition-colors ${
+                          filterEducator !== 'all'
+                            ? 'bg-[#0f3b7d] text-white shadow-xs'
+                            : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200'
+                        }`}
+                        title="Filtrar por Educador específico"
+                      >
+                        <Filter className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Menu Suspenso de Filtro na Coluna (Estilo Excel) */}
+                    {isEducatorFilterMenuOpen && (
+                      <div className="absolute left-0 top-full mt-1 w-64 bg-white rounded-xl border border-slate-200 shadow-2xl z-50 py-2 overflow-hidden normal-case font-normal animate-in fade-in duration-100">
+                        <div className="px-3 pb-2 border-b border-slate-100">
+                          <span className="text-[11px] font-bold text-slate-700 block mb-1">
+                            Filtrar por Educador:
+                          </span>
+                          <div className="relative">
+                            <Search className="w-3 h-3 absolute left-2 top-2 text-slate-400" />
+                            <input
+                              type="text"
+                              value={educatorFilterSearch}
+                              onChange={(e) => setEducatorFilterSearch(e.target.value)}
+                              placeholder="Buscar educador..."
+                              className="w-full pl-7 pr-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="max-h-52 overflow-y-auto divide-y divide-slate-50 text-xs">
+                          {/* Opção Todos */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterEducator('all');
+                              setIsEducatorFilterMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${
+                              filterEducator === 'all'
+                                ? 'bg-blue-50 text-[#0f3b7d] font-bold'
+                                : 'text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <span>(Todos os Educadores)</span>
+                            <span className="text-[11px] text-slate-400">{items.length}</span>
+                          </button>
+
+                          {/* Lista de Educadores presentes */}
+                          {distinctEducatorsWithCounts
+                            .filter(([name]) =>
+                              name.toLowerCase().includes(educatorFilterSearch.toLowerCase())
+                            )
+                            .map(([name, count]) => {
+                              const isSelected =
+                                (name === 'Sem Educador' && filterEducator === '__unassigned__') ||
+                                filterEducator === name;
+
+                              return (
+                                <button
+                                  key={name}
+                                  type="button"
+                                  onClick={() => {
+                                    setFilterEducator(name === 'Sem Educador' ? '__unassigned__' : name);
+                                    setIsEducatorFilterMenuOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${
+                                    isSelected
+                                      ? 'bg-blue-50 text-[#0f3b7d] font-bold'
+                                      : 'text-slate-700 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <span className="truncate pr-2">{name}</span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">
+                                      {count}
+                                    </span>
+                                    {isSelected && <Check className="w-3.5 h-3.5 text-[#0f3b7d]" />}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
+                  </th>
+
+                  <th
+                    className="py-2.5 px-3 text-center cursor-pointer hover:bg-slate-100 transition-colors w-16"
+                    onClick={() => handleSort('currentLesson')}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      <span>Aula</span>
+                      {sortField === 'currentLesson' && (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                      )}
+                    </div>
+                  </th>
+
+                  <th
+                    className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                    onClick={() => handleSort('classSchedule')}
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Turma / Horário</span>
+                      {sortField === 'classSchedule' && (
+                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                      )}
+                    </div>
+                  </th>
+
                   <th className="py-2.5 px-3">Próxima Matéria</th>
-                  <th className="py-2.5 px-3 text-center">Avisos</th>
-                  <th className="py-2.5 px-3 text-right">Ação</th>
+                  <th className="py-2.5 px-3 text-center w-20">Avisos</th>
+                  <th className="py-2.5 px-3 text-right w-16">Ação</th>
                 </tr>
               </thead>
+
               <tbody className="divide-y divide-slate-100">
-                {filteredItems.map((item, idx) => {
+                {visibleItems.map((item, idx) => {
                   const hasWarning = item.isInternalDuplicate || item.isHistoricalDuplicate;
+                  const itemEducator = selectedEducator || item.educatorName;
 
                   return (
                     <tr
@@ -689,8 +1326,15 @@ export default function NovaOrdemPage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-600">
-                        {selectedEducator || item.educatorName || '—'}
+                      <td className="py-2.5 px-3">
+                        {itemEducator ? (
+                          <span className="font-semibold text-slate-800 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                            {itemEducator}
+                          </span>
+                        ) : (
+                          <span className="text-amber-600 italic text-[11px]">Não identificado</span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-center font-bold text-[#0f3b7d]">
                         {item.currentLesson}
@@ -735,27 +1379,60 @@ export default function NovaOrdemPage() {
             </table>
           </div>
 
-          {/* Botão de Finalização */}
-          <div className="pt-4 flex items-center justify-between border-t border-slate-100">
+          {/* Barra de Finalização e Separação de Pedidos */}
+          <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-100">
             <div className="text-xs text-slate-500">
-              Total a gerar:{' '}
-              <strong className="text-slate-900">{items.length} apostilas formatadas</strong>
-              {selectedEducator && (
-                <span className="ml-2">
-                  • Educador: <strong className="text-[#0f3b7d]">{selectedEducator}</strong>
+              Total na visualização:{' '}
+              <strong className="text-slate-900">{visibleItems.length} apostilas</strong>
+              {items.length !== visibleItems.length && (
+                <span className="text-slate-400 ml-1">
+                  (de {items.length} totais na planilha)
+                </span>
+              )}
+              {filterEducator !== 'all' && filterEducator !== '__unassigned__' && (
+                <span className="ml-2 bg-blue-50 text-[#0f3b7d] px-2 py-0.5 rounded font-semibold border border-blue-200">
+                  Educador: {filterEducator}
                 </span>
               )}
             </div>
 
-            <button
-              type="button"
-              disabled={isSaving || items.length === 0}
-              onClick={handleFinalizeOrder}
-              className="inline-flex items-center gap-2 bg-[#0f3b7d] hover:bg-[#0a2e68] text-white px-6 py-3 rounded-xl font-bold text-sm shadow-md transition-all disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              <span>{isSaving ? 'Gravando no Supabase...' : 'Finalizar e Salvar Pedido'}</span>
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Botão de Finalizar apenas o Educador Filtrado */}
+              {filterEducator !== 'all' && filterEducator !== '__unassigned__' && (
+                <button
+                  type="button"
+                  disabled={isSaving || visibleItems.length === 0}
+                  onClick={() => handleFinalizeOrder(true)}
+                  className="inline-flex items-center gap-2 bg-[#0f3b7d] hover:bg-[#0a2e68] text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>
+                    {isSaving
+                      ? 'Gravando...'
+                      : `Finalizar Pedido de ${filterEducator.split(' ')[0]} (${visibleItems.length} apostilas)`}
+                  </span>
+                </button>
+              )}
+
+              {/* Botão de Finalizar Todo o Pedido Geral */}
+              <button
+                type="button"
+                disabled={isSaving || items.length === 0}
+                onClick={() => handleFinalizeOrder(false)}
+                className={`inline-flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all disabled:opacity-50 ${
+                  filterEducator !== 'all' && filterEducator !== '__unassigned__'
+                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                    : 'bg-[#0f3b7d] hover:bg-[#0a2e68] text-white'
+                }`}
+              >
+                <Save className="w-4 h-4" />
+                <span>
+                  {isSaving
+                    ? 'Gravando no Supabase...'
+                    : `Finalizar Todas as Apostilas (${items.length})`}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       )}
