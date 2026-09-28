@@ -229,53 +229,11 @@ export default function NovaOrdemPage() {
           setHistoricalMap(hist);
         }
 
-        // 4. Carrega a Base de Contratos (se salva em cache ou padrão do sistema)
-        let loadedBaseContratos: ContractBaseAnalysis | null = null;
+        // Limpa caches antigos persistidos para garantir que cada importação use planilhas novas
         try {
-          const savedBase = localStorage.getItem('microlins_base_contratos_cache');
-          if (savedBase) {
-            const parsed = JSON.parse(savedBase);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const analysis = buildContractBaseAnalysis(parsed);
-              loadedBaseContratos = analysis;
-              setBaseContratos(analysis);
-              setBaseContratosFileName('Base Salva (Cache Local)');
-              setBaseContratosSource('custom');
-            }
-          } else {
-            // Tenta carregar o base_contratos.json disponibilizado
-            const res = await fetch('./base_contratos.json');
-            if (res.ok) {
-              const data = await res.json();
-              if (Array.isArray(data) && data.length > 0) {
-                const analysis = buildContractBaseAnalysis(data);
-                loadedBaseContratos = analysis;
-                setBaseContratos(analysis);
-                setBaseContratosFileName('Análise Base de Contratos (Padrão)');
-                setBaseContratosSource('system');
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('Base de contratos padrão não encontrada automaticamente:', e);
-        }
-
-        // 4b. Carrega o Controle Pedagógico (se salvo em cache local)
-        let loadedControlePedagogico: PedagogicalScheduleAnalysis | null = null;
-        try {
-          const savedControle = localStorage.getItem('microlins_controle_pedagogico_cache');
-          if (savedControle) {
-            const parsed = JSON.parse(savedControle);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const analysis = buildPedagogicalScheduleAnalysis(parsed);
-              loadedControlePedagogico = analysis;
-              setControlePedagogico(analysis);
-              setControlePedagogicoFileName('Controle Pedagógico Salvo');
-            }
-          }
-        } catch (e) {
-          console.warn('Erro ao carregar controle pedagógico do cache:', e);
-        }
+          localStorage.removeItem('microlins_base_contratos_cache');
+          localStorage.removeItem('microlins_controle_pedagogico_cache');
+        } catch (e) {}
 
         // 5. Restaura rascunho de importação em andamento (se houver)
         try {
@@ -320,8 +278,8 @@ export default function NovaOrdemPage() {
                     draft.allLessons ?? false,
                     settingsData?.ignored_subjects || ignoredSubjects,
                     settingsData?.excluded_contract_types || excludedContractTypes,
-                    loadedBaseContratos || baseContratos,
-                    loadedControlePedagogico || controlePedagogico
+                    baseContratos,
+                    controlePedagogico
                   );
                 }
               }
@@ -514,20 +472,6 @@ export default function NovaOrdemPage() {
             setBaseContratosFileName(file.name);
             setBaseContratosSource('custom');
 
-            // Salva no localStorage para não precisar enviar novamente a cada sessão
-            try {
-              const simplified = analysis.entries.map((en) => ({
-                Nome: en.studentName,
-                Educador: en.educatorName,
-                Contrato: en.contractNumber,
-                Formações: en.courseName,
-                'Tipo Contrato': en.contractType,
-              }));
-              localStorage.setItem('microlins_base_contratos_cache', JSON.stringify(simplified));
-            } catch (storageErr) {
-              console.warn('Storage limit:', storageErr);
-            }
-
             showToast(
               `Base de Contratos conectada: ${analysis.totalRows} registros e ${analysis.educators.length} educadores mapeados!`,
               'success'
@@ -582,22 +526,6 @@ export default function NovaOrdemPage() {
             setControlePedagogico(analysis);
             setControlePedagogicoFileName(file.name);
 
-            // Salva no localStorage para manter entre navegações
-            try {
-              const simplified = analysis.entries.map((en) => ({
-                Aluno: en.studentName,
-                'Nº Contrato': en.contractNumber,
-                'Próxima Matéria': en.nextSubject,
-                'Dias / Horários': en.classSchedule,
-                Dia: en.scheduledDay,
-                Horário: en.scheduledTime,
-                Telefone: en.phone,
-              }));
-              localStorage.setItem('microlins_controle_pedagogico_cache', JSON.stringify(simplified));
-            } catch (storageErr) {
-              console.warn('Storage limit:', storageErr);
-            }
-
             showToast(
               `Controle Pedagógico conectado: ${analysis.totalRows} alunos mapeados com horários e próxima matéria!`,
               'success'
@@ -633,6 +561,61 @@ export default function NovaOrdemPage() {
     } catch (err: any) {
       setIsProcessingControlePedagogico(false);
       showAlert(err.message || 'Erro ao ler arquivo.', 'error', 'Erro');
+    }
+  };
+
+  // Remove a Base de Contratos da importação atual
+  const handleClearBaseContratos = () => {
+    setBaseContratos(null);
+    setBaseContratosFileName('');
+    setBaseContratosSource(null);
+    setCrossedEducatorsCount(0);
+    if (rawRows && rawRows.length > 0) {
+      reprocessRowsWithFilters(
+        rawRows,
+        lessonMin,
+        lessonMax,
+        allLessons,
+        ignoredSubjects,
+        excludedContractTypes,
+        null,
+        controlePedagogico
+      );
+    } else if (rawBuffer) {
+      processSpreadsheet(
+        rawBuffer,
+        undefined,
+        undefined,
+        null,
+        controlePedagogico
+      );
+    }
+  };
+
+  // Remove o Controle Pedagógico da importação atual
+  const handleClearControlePedagogico = () => {
+    setControlePedagogico(null);
+    setControlePedagogicoFileName('');
+    setMatchedPedagogicalCount(0);
+    if (rawRows && rawRows.length > 0) {
+      reprocessRowsWithFilters(
+        rawRows,
+        lessonMin,
+        lessonMax,
+        allLessons,
+        ignoredSubjects,
+        excludedContractTypes,
+        baseContratos,
+        null
+      );
+    } else if (rawBuffer) {
+      processSpreadsheet(
+        rawBuffer,
+        undefined,
+        undefined,
+        baseContratos,
+        null
+      );
     }
   };
 
@@ -842,6 +825,11 @@ export default function NovaOrdemPage() {
         );
       } else {
         localStorage.removeItem('microlins_draft_nova_ordem');
+        setBaseContratos(null);
+        setBaseContratosFileName('');
+        setBaseContratosSource(null);
+        setControlePedagogico(null);
+        setControlePedagogicoFileName('');
         showToast(`Pedido ${orderNumber} criado com sucesso com ${itemsToSave.length} apostilas!`, 'success');
         router.push('/historico');
       }
@@ -938,6 +926,11 @@ export default function NovaOrdemPage() {
           setFilterEducator('all');
           setCrossedEducatorsCount(0);
           setMatchedPedagogicalCount(0);
+          setBaseContratos(null);
+          setBaseContratosFileName('');
+          setBaseContratosSource(null);
+          setControlePedagogico(null);
+          setControlePedagogicoFileName('');
           setHasRestoredDraft(false);
 
           // Restaura a faixa de aulas configurada na unidade
@@ -1119,17 +1112,6 @@ export default function NovaOrdemPage() {
               * O sistema preserva exatamente maiúsculas e minúsculas conforme digitado.
             </p>
           </div>
-
-          {filterEducator !== 'all' && filterEducator !== '__unassigned__' && (
-            <button
-              type="button"
-              onClick={() => setTitle(`ENTREGA DE MATERIAL - PEDIDO (${filterEducator})`)}
-              className="text-[11px] text-[#0f3b7d] hover:underline font-semibold text-left flex items-center gap-1.5"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span>Sugestão: Título com nome de {filterEducator}</span>
-            </button>
-          )}
         </div>
 
         {/* Card 2: Upload da Planilha Principal (Entrega de Apostilas) */}
@@ -1167,137 +1149,101 @@ export default function NovaOrdemPage() {
           </p>
         </div>
 
-        {/* Card 3: Planilha Complementar - Controle Pedagógico (Opcional - Próxima Matéria, Turma e Horário) */}
+        {/* Card 3: Planilha Complementar - Controle Pedagógico (Opcional) */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-[#0f3b7d] flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-[#0f3b7d]" />
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block">
                 3. Controle Pedagógico (Opcional)
               </label>
+              {controlePedagogico && (
+                <button
+                  type="button"
+                  onClick={handleClearControlePedagogico}
+                  className="text-slate-400 hover:text-red-600 text-xs flex items-center gap-1 transition-colors"
+                  title="Remover arquivo"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-
-            {controlePedagogico ? (
-              <div className="bg-sky-50/60 border border-sky-200 rounded-xl p-3.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-[#0f3b7d]" />
-                    <span className="text-xs font-bold text-slate-800 truncate max-w-[130px]" title={controlePedagogicoFileName}>
-                      {controlePedagogicoFileName}
-                    </span>
-                  </div>
-                  <span className="text-[11px] font-semibold text-[#0f3b7d]">
-                    {controlePedagogico.totalRows} alunos
-                  </span>
+            <div className="border-2 border-dashed border-slate-300 hover:border-[#0f3b7d] rounded-xl p-4 text-center cursor-pointer transition-colors relative bg-slate-50/50">
+              <input
+                type="file"
+                accept=".xls,.xlsx,.csv,.txt"
+                onChange={handleControlePedagogicoUpload}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+              <div className="flex flex-col items-center justify-center gap-1.5">
+                <div className="w-9 h-9 rounded-full bg-blue-50 text-[#0f3b7d] flex items-center justify-center">
+                  <Clock className="w-4 h-4" />
                 </div>
-                <p className="text-[10px] text-slate-600">
-                  Próxima matéria, horários e turmas integrados
+                <p className="text-xs font-semibold text-slate-700 truncate max-w-[200px]">
+                  {controlePedagogicoFileName ? (
+                    <span className="text-[#0f3b7d] font-bold">{controlePedagogicoFileName}</span>
+                  ) : (
+                    'Arraste ou clique para selecionar'
+                  )}
                 </p>
-
-                <div className="pt-1 flex items-center justify-between">
-                  <label className="text-[11px] text-[#0f3b7d] hover:underline font-bold cursor-pointer flex items-center gap-1.5">
-                    <RefreshCw className="w-3 h-3 text-[#0f3b7d]" />
-                    <span>Atualizar planilha</span>
-                    <input
-                      type="file"
-                      accept=".xls,.xlsx,.csv,.txt"
-                      onChange={handleControlePedagogicoUpload}
-                      className="hidden"
-                    />
-                  </label>
-                  <span className="text-[10px] text-slate-400">Cruzamento ativo</span>
-                </div>
+                <p className="text-[10px] text-slate-400">
+                  {controlePedagogico
+                    ? `${controlePedagogico.totalRows} alunos mapeados`
+                    : 'Próxima Matéria, Turma e Horário'}
+                </p>
               </div>
-            ) : (
-              <div className="border-2 border-dashed border-sky-200 hover:border-[#0f3b7d] rounded-xl p-4 text-center cursor-pointer transition-colors relative bg-sky-50/30">
-                <input
-                  type="file"
-                  accept=".xls,.xlsx,.csv,.txt"
-                  onChange={handleControlePedagogicoUpload}
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                />
-                <div className="flex flex-col items-center justify-center gap-1">
-                  <Clock className="w-5 h-5 text-sky-600" />
-                  <p className="text-xs font-semibold text-slate-700">
-                    {isProcessingControlePedagogico ? 'Processando...' : 'Carregar Controle Pedagógico'}
-                  </p>
-                  <p className="text-[10px] text-slate-400">
-                    Opcional: Próxima Matéria, Turma e Horário
-                  </p>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
-
           <p className="text-[10px] text-slate-400 mt-2">
-            * Consulta horários de aula, turmas e próxima matéria de cada aluno.
+            * Consulta horários de aula, turmas e próxima matéria.
           </p>
         </div>
 
-        {/* Card 4: Planilha Complementar - Base de Contratos (Aluno x Educador) */}
+        {/* Card 4: Planilha Complementar - Base de Contratos (Opcional) */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-[#0f3b7d] flex items-center gap-1.5">
-                <FileSpreadsheet className="w-3.5 h-3.5 text-[#0f3b7d]" />
-                4. Base de Contratos (Complementar)
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block">
+                4. Base de Contratos (Opcional)
               </label>
+              {baseContratos && (
+                <button
+                  type="button"
+                  onClick={handleClearBaseContratos}
+                  className="text-slate-400 hover:text-red-600 text-xs flex items-center gap-1 transition-colors"
+                  title="Remover arquivo"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-
-            {baseContratos ? (
-              <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-3.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <FileSpreadsheet className="w-4 h-4 text-[#0f3b7d]" />
-                    <span className="text-xs font-bold text-slate-800 truncate max-w-[130px]" title={baseContratosFileName}>
-                      {baseContratosFileName}
-                    </span>
-                  </div>
-                  <span className="text-[11px] font-semibold text-[#0f3b7d]">
-                    {baseContratos.totalRows} contratos
-                  </span>
+            <div className="border-2 border-dashed border-slate-300 hover:border-[#0f3b7d] rounded-xl p-4 text-center cursor-pointer transition-colors relative bg-slate-50/50">
+              <input
+                type="file"
+                accept=".xls,.xlsx"
+                onChange={handleBaseContratosUpload}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+              <div className="flex flex-col items-center justify-center gap-1.5">
+                <div className="w-9 h-9 rounded-full bg-blue-50 text-[#0f3b7d] flex items-center justify-center">
+                  <Users className="w-4 h-4" />
                 </div>
-                <p className="text-[10px] text-slate-600 line-clamp-1">
-                  Educadores: {baseContratos.educators.join(', ')}
+                <p className="text-xs font-semibold text-slate-700 truncate max-w-[200px]">
+                  {baseContratosFileName ? (
+                    <span className="text-[#0f3b7d] font-bold">{baseContratosFileName}</span>
+                  ) : (
+                    'Arraste ou clique para selecionar'
+                  )}
                 </p>
-
-                <div className="pt-1 flex items-center justify-between">
-                  <label className="text-[11px] text-[#0f3b7d] hover:underline font-bold cursor-pointer flex items-center gap-1.5">
-                    <RefreshCw className="w-3 h-3 text-[#0f3b7d]" />
-                    <span>Atualizar planilha</span>
-                    <input
-                      type="file"
-                      accept=".xls,.xlsx"
-                      onChange={handleBaseContratosUpload}
-                      className="hidden"
-                    />
-                  </label>
-                  <span className="text-[10px] text-slate-400">Cruzamento automático</span>
-                </div>
+                <p className="text-[10px] text-slate-400">
+                  {baseContratos
+                    ? `${baseContratos.totalRows} contratos mapeados`
+                    : 'Cruza automaticamente Aluno x Educador'}
+                </p>
               </div>
-            ) : (
-              <div className="border-2 border-dashed border-indigo-200 hover:border-[#0f3b7d] rounded-xl p-4 text-center cursor-pointer transition-colors relative bg-indigo-50/30">
-                <input
-                  type="file"
-                  accept=".xls,.xlsx"
-                  onChange={handleBaseContratosUpload}
-                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                />
-                <div className="flex flex-col items-center justify-center gap-1">
-                  <Users className="w-5 h-5 text-indigo-600" />
-                  <p className="text-xs font-semibold text-slate-700">
-                    {isProcessingBaseContratos ? 'Processando...' : 'Carregar Análise Base de Contratos'}
-                  </p>
-                  <p className="text-[10px] text-slate-400">
-                    Cruza automaticamente Aluno x Educador
-                  </p>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
-
           <p className="text-[10px] text-slate-400 mt-2">
-            * Vincula cada aluno ao seu respectivo educador pelo número de contrato e nome.
+            * Vincula cada aluno ao educador pelo contrato.
           </p>
         </div>
       </div>
