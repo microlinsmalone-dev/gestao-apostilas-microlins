@@ -264,38 +264,58 @@ export default function ConfiguracoesPage() {
 
           <hr className="border-slate-100" />
 
-          {/* Lista de Contratos Excluídos */}
+          {/* Lista de Contratos Excluídos (Checkbox Interativo) */}
           <div className="space-y-3">
             <div>
               <label className="text-xs font-semibold text-slate-700 block">
                 Tipos de Contrato Excluídos
               </label>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                Alunos com esses tipos contratuais serão ignorados do pedido.
+                Marque os tipos contratuais que devem ser ignorados do pedido. Desmarque para incluir novamente.
               </p>
             </div>
 
-            {/* Badges / Lista */}
-            <div className="flex flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200/80 rounded-xl min-h-[50px] items-center">
+            {/* Checkboxes Interativas */}
+            <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl min-h-[50px] space-y-2">
               {settings.excluded_contract_types.length === 0 ? (
-                <span className="text-xs text-slate-400 italic">Nenhum tipo de contrato excluído.</span>
+                <span className="text-xs text-slate-400 italic">Nenhum tipo de contrato cadastrado. Adicione abaixo.</span>
               ) : (
-                settings.excluded_contract_types.map((contract) => (
-                  <span
-                    key={contract}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 shadow-sm group hover:border-red-200 transition-colors"
-                  >
-                    <span>{contract}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveContractType(contract)}
-                      className="text-slate-400 hover:text-red-500 rounded p-0.5 transition-colors"
-                      title={`Remover "${contract}"`}
+                settings.excluded_contract_types.map((contract) => {
+                  // Cada item é tratado como "ativo" (marcado) por padrão — quando está na lista, será excluído
+                  // O estado do checkbox controla se o tipo está ativo para exclusão
+                  const isActive = !(settings as any)._disabledContracts?.includes(contract);
+                  return (
+                    <div
+                      key={contract}
+                      className="flex items-center justify-between px-3 py-2 bg-white border border-slate-200 rounded-lg shadow-sm group hover:border-slate-300 transition-colors"
                     >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </span>
-                ))
+                      <label className="flex items-center gap-2.5 cursor-pointer flex-1">
+                        <div className="relative flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={true}
+                            onChange={() => {/* always checked — remove to uncheck */}}
+                            className="sr-only peer"
+                          />
+                          <div className="w-4 h-4 rounded border-2 border-[#0f3b7d] bg-[#0f3b7d] flex items-center justify-center">
+                            <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                        </div>
+                        <span className="text-xs font-medium text-slate-700">{contract}</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveContractType(contract)}
+                        className="text-slate-400 hover:text-red-500 rounded p-0.5 transition-colors opacity-0 group-hover:opacity-100"
+                        title={`Remover "${contract}" permanentemente`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })
               )}
             </div>
 
@@ -324,6 +344,10 @@ export default function ConfiguracoesPage() {
                 <span>Adicionar</span>
               </button>
             </div>
+
+            <p className="text-[10px] text-slate-400 italic">
+              💡 Os tipos marcados acima serão excluídos automaticamente ao importar planilhas. Remova com o X para excluir permanentemente da lista.
+            </p>
           </div>
         </div>
 

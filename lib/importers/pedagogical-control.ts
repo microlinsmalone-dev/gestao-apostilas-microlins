@@ -52,12 +52,18 @@ export class PedagogicalControlImportAdapter implements ImportAdapter {
       if (!aluno || !materiaBruta) return;
 
       // 1. Filtro de Contrato
-      const isContractValid = isEligibleContract({
-        statusContrato,
-        inadimplente: 'Não',
-        entregaFisica,
-        tipoContrato,
-      });
+      const isContractValid = isEligibleContract(
+        {
+          statusContrato,
+          inadimplente: 'Não',
+          entregaFisica,
+          tipoContrato,
+        },
+        'Ativo',
+        'Não',
+        'Não',
+        options.excludedContractTypes || ['Bolsista']
+      );
 
       if (!isContractValid) {
         filteredContracts++;

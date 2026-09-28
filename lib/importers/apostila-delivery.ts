@@ -53,12 +53,18 @@ export class ApostilaDeliveryImportAdapter implements ImportAdapter {
       if (!aluno || !materiaBruta) return;
 
       // 1. Filtro de Contrato
-      const isContractValid = isEligibleContract({
-        statusContrato,
-        inadimplente,
-        entregaFisica,
-        tipoContrato,
-      });
+      const isContractValid = isEligibleContract(
+        {
+          statusContrato,
+          inadimplente,
+          entregaFisica,
+          tipoContrato,
+        },
+        'Ativo',
+        'Não',
+        'Não',
+        options.excludedContractTypes || ['Bolsista']
+      );
 
       if (!isContractValid) {
         filteredContracts++;

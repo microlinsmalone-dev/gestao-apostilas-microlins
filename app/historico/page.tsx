@@ -1,8 +1,8 @@
 'use client';
 
 import { Suspense } from 'react';
-import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import React, { useEffect, useState, useMemo } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   History,
@@ -17,7 +17,11 @@ import {
   X,
   Save,
   Plus,
-  ClipboardList
+  ClipboardList,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Pencil
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase/client';
@@ -26,14 +30,26 @@ import { useDialog } from '../../components/ui/dialog';
 import { cleanSubject, normalizeText } from '../../lib/domain/sanitizer';
 import { createDuplicateFingerprint } from '../../lib/domain/duplicates';
 
+type SortField = 'title' | 'competence' | 'total_items' | 'status' | 'educator';
+type SortDirection = 'asc' | 'desc';
+
+interface OrderWithEducator extends Order {
+  dominant_educator?: string;
+}
+
 function HistoricoContent() {
   const { showAlert, showConfirm, showToast } = useDialog();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const editIdParam = searchParams.get('edit');
 
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<OrderWithEducator[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Sorting
+  const [sortField, setSortField] = useState<SortField>('title');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   // Selected Order for Edit / Detail
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
@@ -43,7 +59,7 @@ function HistoricoContent() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Carrega lista de pedidos
+  // Carrega lista de pedidos com educador predominante
   const loadOrders = async () => {
     try {
       setLoading(true);
@@ -53,10 +69,56 @@ function HistoricoContent() {
         .order('sequence_num', { ascending: false });
 
       if (error) throw error;
-      setOrders(data || []);
+
+      // Para cada pedido, busca o educador predominante
+      const ordersWithEducator: OrderWithEducator[] = [];
+
+      if (data && data.length > 0) {
+        // Busca todos os itens de todos os pedidos de uma vez para performance
+        const orderIds = data.map((o) => o.id);
+        const { data: allItems } = await supabase
+          .from('order_items')
+          .select('order_id, educator_name')
+          .in('order_id', orderIds);
+
+        // Agrupa educadores por pedido e acha o predominante
+        const educatorMap = new Map<string, string>();
+        if (allItems) {
+          const grouped = new Map<string, Map<string, number>>();
+          allItems.forEach((item) => {
+            if (!item.educator_name) return;
+            if (!grouped.has(item.order_id)) {
+              grouped.set(item.order_id, new Map());
+            }
+            const edCount = grouped.get(item.order_id)!;
+            edCount.set(item.educator_name, (edCount.get(item.educator_name) || 0) + 1);
+          });
+
+          grouped.forEach((edCounts, orderId) => {
+            let maxName = '';
+            let maxCount = 0;
+            edCounts.forEach((count, name) => {
+              if (count > maxCount) {
+                maxCount = count;
+                maxName = name;
+              }
+            });
+            if (maxName) educatorMap.set(orderId, maxName);
+          });
+        }
+
+        data.forEach((order) => {
+          ordersWithEducator.push({
+            ...order,
+            dominant_educator: educatorMap.get(order.id) || '',
+          });
+        });
+      }
+
+      setOrders(ordersWithEducator);
 
       if (editIdParam && data) {
-        const target = data.find((o) => o.id === editIdParam);
+        const target = ordersWithEducator.find((o) => o.id === editIdParam);
         if (target) handleOpenOrder(target, true);
       }
     } catch (err) {
@@ -90,6 +152,11 @@ function HistoricoContent() {
     } finally {
       setIsLoadingItems(false);
     }
+  };
+
+  // Editar pedido na tela de lançamento manual (carrega os dados lá)
+  const handleEditInManualPage = (order: Order) => {
+    router.push(`/novo-pedido-manual?edit=${order.id}`);
   };
 
   // Adiciona nova linha ao pedido em edição
@@ -290,11 +357,74 @@ function HistoricoContent() {
     XLSX.writeFile(wb, fileName);
   };
 
-  const filteredOrders = orders.filter((o) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return o.title.toLowerCase().includes(q) || o.order_number.toLowerCase().includes(q);
-  });
+  // Sorting handler
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // Sort icon renderer
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 text-slate-300 ml-1 inline" />;
+    }
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="w-3 h-3 text-[#0f3b7d] ml-1 inline" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-[#0f3b7d] ml-1 inline" />
+    );
+  };
+
+  // Filtered and sorted orders
+  const sortedOrders = useMemo(() => {
+    let filtered = orders.filter((o) => {
+      if (!searchQuery) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        o.title.toLowerCase().includes(q) ||
+        o.order_number.toLowerCase().includes(q) ||
+        (o.dominant_educator && o.dominant_educator.toLowerCase().includes(q))
+      );
+    });
+
+    filtered.sort((a, b) => {
+      let valA: string | number = '';
+      let valB: string | number = '';
+
+      switch (sortField) {
+        case 'title':
+          valA = a.title.toLowerCase();
+          valB = b.title.toLowerCase();
+          break;
+        case 'competence':
+          valA = a.competence_year * 100 + a.competence_month;
+          valB = b.competence_year * 100 + b.competence_month;
+          break;
+        case 'total_items':
+          valA = a.total_items;
+          valB = b.total_items;
+          break;
+        case 'status':
+          valA = a.status;
+          valB = b.status;
+          break;
+        case 'educator':
+          valA = (a.dominant_educator || '').toLowerCase();
+          valB = (b.dominant_educator || '').toLowerCase();
+          break;
+      }
+
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return filtered;
+  }, [orders, searchQuery, sortField, sortDirection]);
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto w-full">
@@ -318,7 +448,7 @@ function HistoricoContent() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Pesquisar por título do pedido..."
+              placeholder="Pesquisar por título ou educador..."
               className="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
             />
           </div>
@@ -338,28 +468,79 @@ function HistoricoContent() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-slate-400 text-xs">Carregando pedidos do histórico...</div>
-        ) : filteredOrders.length === 0 ? (
+        ) : sortedOrders.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs">Nenhum pedido encontrado.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider">
                 <tr>
-                  <th className="py-3 px-4">Título do Pedido</th>
-                  <th className="py-3 px-4">Competência</th>
-                  <th className="py-3 px-4 text-center">Apostilas</th>
-                  <th className="py-3 px-4">Status</th>
+                  <th
+                    className="py-3 px-4 cursor-pointer hover:text-[#0f3b7d] transition-colors select-none"
+                    onClick={() => handleSort('title')}
+                  >
+                    <span className="inline-flex items-center">
+                      Título do Pedido
+                      <SortIcon field="title" />
+                    </span>
+                  </th>
+                  <th
+                    className="py-3 px-4 cursor-pointer hover:text-[#0f3b7d] transition-colors select-none"
+                    onClick={() => handleSort('competence')}
+                  >
+                    <span className="inline-flex items-center">
+                      Competência
+                      <SortIcon field="competence" />
+                    </span>
+                  </th>
+                  <th
+                    className="py-3 px-4 text-center cursor-pointer hover:text-[#0f3b7d] transition-colors select-none"
+                    onClick={() => handleSort('total_items')}
+                  >
+                    <span className="inline-flex items-center justify-center">
+                      Apostilas
+                      <SortIcon field="total_items" />
+                    </span>
+                  </th>
+                  <th
+                    className="py-3 px-4 cursor-pointer hover:text-[#0f3b7d] transition-colors select-none"
+                    onClick={() => handleSort('educator')}
+                  >
+                    <span className="inline-flex items-center">
+                      Educador
+                      <SortIcon field="educator" />
+                    </span>
+                  </th>
+                  <th
+                    className="py-3 px-4 cursor-pointer hover:text-[#0f3b7d] transition-colors select-none"
+                    onClick={() => handleSort('status')}
+                  >
+                    <span className="inline-flex items-center">
+                      Status
+                      <SortIcon field="status" />
+                    </span>
+                  </th>
                   <th className="py-3 px-4 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredOrders.map((order) => (
+                {sortedOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-3 px-4 font-semibold text-slate-900">{order.title}</td>
                     <td className="py-3 px-4 text-slate-600">
                       {order.competence_month}/{order.competence_year}
                     </td>
                     <td className="py-3 px-4 text-center font-bold text-slate-700">{order.total_items}</td>
+                    <td className="py-3 px-4 text-slate-600">
+                      {order.dominant_educator ? (
+                        <span className="inline-flex items-center gap-1 text-xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#0f3b7d] shrink-0"></span>
+                          {order.dominant_educator}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 italic">—</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold ${
                         order.status === 'archived'
@@ -378,6 +559,14 @@ function HistoricoContent() {
                           title="Visualizar itens do pedido"
                         >
                           Ver
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEditInManualPage(order)}
+                          className="px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white font-semibold transition-colors"
+                          title="Editar no painel de lançamento manual"
+                        >
+                          <Pencil className="w-3.5 h-3.5 inline" />
                         </button>
                         <button
                           type="button"

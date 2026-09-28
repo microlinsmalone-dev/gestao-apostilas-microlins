@@ -11,6 +11,7 @@ export type ReportType = 'entrega_apostila' | 'controle_pedagogico' | 'desconhec
 export interface ImportOptions {
   ignoredEducators: string[];
   ignoredSubjects?: string[];
+  excludedContractTypes?: string[];
   lessonMin?: number;
   lessonMax?: number;
   allLessons?: boolean;

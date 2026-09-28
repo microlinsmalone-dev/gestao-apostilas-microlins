@@ -21,14 +21,13 @@ export function isEligibleContract(
   expectedStatus = 'Ativo',
   expectedDelinquent = 'Não',
   expectedDelivery = 'Não',
-  excludedContractType = 'Bolsista'
+  excludedContractTypes: string | string[] = 'Bolsista'
 ): boolean {
   const statusNorm = normalizeText(params.statusContrato);
   const expStatusNorm = normalizeText(expectedStatus);
   const inadNorm = normalizeText(params.inadimplente);
   const entFisNorm = normalizeText(params.entregaFisica);
   const tipoNorm = normalizeText(params.tipoContrato);
-  const exclTipoNorm = normalizeText(excludedContractType);
 
   // Status de contrato deve ser Ativo
   if (statusNorm !== expStatusNorm) {
@@ -47,9 +46,13 @@ export function isEligibleContract(
     return false;
   }
 
-  // Contrato do tipo Bolsista deve ser excluído
-  if (tipoNorm.includes(exclTipoNorm)) {
-    return false;
+  // Verifica contra a lista de tipos de contrato excluídos
+  const excludedList = Array.isArray(excludedContractTypes) ? excludedContractTypes : [excludedContractTypes];
+  for (const excl of excludedList) {
+    const exclNorm = normalizeText(excl);
+    if (exclNorm && tipoNorm.includes(exclNorm)) {
+      return false;
+    }
   }
 
   return true;

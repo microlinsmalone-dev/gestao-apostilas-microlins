@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -15,7 +15,10 @@ import {
   RefreshCw,
   Search,
   BookOpen,
-  ClipboardList
+  ClipboardList,
+  UserCheck,
+  ChevronDown,
+  Check
 } from 'lucide-react';
 import { parseSpreadsheetBuffer } from '../../lib/importers';
 import { analyzeDuplicates } from '../../lib/domain/duplicates';
@@ -23,6 +26,7 @@ import { formatOrderTitle } from '../../lib/domain/sanitizer';
 import { ProcessedStudentItem } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 import { useDialog } from '../../components/ui/dialog';
+import { Educator } from '../../types';
 
 export default function NovaOrdemPage() {
   const router = useRouter();
@@ -51,23 +55,72 @@ export default function NovaOrdemPage() {
   ]);
   const [historicalMap, setHistoricalMap] = useState<Map<string, string>>(new Map());
 
+  // Settings-based exclusion lists (loaded from Supabase)
+  const [ignoredSubjects, setIgnoredSubjects] = useState<string[]>(['Digitação', 'Digitacao']);
+  const [excludedContractTypes, setExcludedContractTypes] = useState<string[]>(['Bolsista']);
+
+  // Educador único por pedido
+  const [selectedEducator, setSelectedEducator] = useState('');
+  const [educators, setEducators] = useState<Educator[]>([]);
+  const [isEducatorDropdownOpen, setIsEducatorDropdownOpen] = useState(false);
+  const [educatorSearch, setEducatorSearch] = useState('');
+  const educatorDropdownRef = useRef<HTMLDivElement | null>(null);
+
   // Loading States
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Carrega educadores e histórico existente do Supabase
+  // Fecha dropdown do educador ao clicar fora
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        educatorDropdownRef.current &&
+        !educatorDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsEducatorDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Carrega educadores, settings e histórico existente do Supabase
   useEffect(() => {
     async function loadInitialData() {
       try {
-        // Busca educadores cadastrados
-        const { data: educators } = await supabase
-          .from('educators')
-          .select('name')
-          .eq('active', true);
+        const unitId = process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
-        if (educators && educators.length > 0) {
-          setIgnoredEducators(educators.map((e) => e.name));
+        // Busca educadores cadastrados (para ignorar no import E para o dropdown de seleção)
+        const { data: educatorsData } = await supabase
+          .from('educators')
+          .select('*')
+          .eq('active', true)
+          .order('name');
+
+        if (educatorsData && educatorsData.length > 0) {
+          setIgnoredEducators(educatorsData.map((e) => e.name));
+          setEducators(educatorsData);
+        }
+
+        // Busca configurações da unidade (matérias ignoradas + tipos de contrato excluídos)
+        const { data: settingsData } = await supabase
+          .from('unit_settings')
+          .select('*')
+          .eq('unit_id', unitId)
+          .single();
+
+        if (settingsData) {
+          if (settingsData.ignored_subjects && settingsData.ignored_subjects.length > 0) {
+            setIgnoredSubjects(settingsData.ignored_subjects);
+          }
+          if (settingsData.excluded_contract_types && settingsData.excluded_contract_types.length > 0) {
+            setExcludedContractTypes(settingsData.excluded_contract_types);
+          }
+          if (settingsData.default_lesson_from) setLessonMin(settingsData.default_lesson_from);
+          if (settingsData.default_lesson_to) setLessonMax(settingsData.default_lesson_to);
         }
 
         // Busca itens do histórico para detecção de duplicidades históricas
@@ -94,13 +147,19 @@ export default function NovaOrdemPage() {
   }, []);
 
   // Processa o buffer do arquivo com os filtros atuais
-  const processSpreadsheet = (buffer: ArrayBuffer) => {
+  const processSpreadsheet = (
+    buffer: ArrayBuffer,
+    overrideIgnoredSubjects?: string[],
+    overrideExcludedContracts?: string[]
+  ) => {
     try {
       setIsProcessingFile(true);
       setErrorMessage('');
 
       const result = parseSpreadsheetBuffer(buffer, {
         ignoredEducators,
+        ignoredSubjects: overrideIgnoredSubjects || ignoredSubjects,
+        excludedContractTypes: overrideExcludedContracts || excludedContractTypes,
         lessonMin,
         lessonMax,
         allLessons,
@@ -147,6 +206,8 @@ export default function NovaOrdemPage() {
       try {
         const result = parseSpreadsheetBuffer(rawBuffer, {
           ignoredEducators,
+          ignoredSubjects,
+          excludedContractTypes,
           lessonMin: min,
           lessonMax: max,
           allLessons: all,
@@ -210,7 +271,7 @@ export default function NovaOrdemPage() {
 
       if (orderError) throw orderError;
 
-      // 3. Grava itens do pedido
+      // 3. Grava itens do pedido (com o educador selecionado)
       const itemsToInsert = items.map((item, idx) => ({
         order_id: orderData.id,
         student_name: item.studentName,
@@ -219,7 +280,7 @@ export default function NovaOrdemPage() {
         subject_name_normalized: item.subjectNameNormalized,
         raw_subject_name: item.rawSubjectName,
         course_name: item.courseName || null,
-        educator_name: item.educatorName || null,
+        educator_name: selectedEducator.trim() || item.educatorName || null,
         contract_number: item.contractNumber || null,
         current_lesson: item.currentLesson,
         scheduled_day: item.scheduledDay || null,
@@ -260,6 +321,10 @@ export default function NovaOrdemPage() {
       (item.educatorName && item.educatorName.toLowerCase().includes(q))
     );
   });
+
+  const filteredEducators = educators.filter((ed) =>
+    ed.name.toLowerCase().includes(educatorSearch.toLowerCase())
+  );
 
   return (
     <div className="p-8 space-y-6 max-w-7xl mx-auto w-full">
@@ -384,6 +449,127 @@ export default function NovaOrdemPage() {
         </div>
       </div>
 
+      {/* Seletor de Educador do Pedido (aparece após upload) */}
+      {items.length > 0 && (
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-end">
+            {/* Educador (Caixinha Personalizada do Sistema) */}
+            <div className="md:col-span-5" ref={educatorDropdownRef}>
+              <label className="block text-xs font-bold text-[#0f3b7d] mb-1.5 flex items-center gap-1.5">
+                <UserCheck className="w-4 h-4" />
+                Educador deste Pedido (Opcional)
+              </label>
+              <div className="relative">
+                {/* Botão seletor personalizado */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEducatorDropdownOpen((prev) => !prev);
+                    setEducatorSearch('');
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left text-xs font-semibold transition-all ${
+                    selectedEducator
+                      ? 'border-[#0f3b7d] bg-blue-50/40 text-slate-900 shadow-sm'
+                      : 'border-slate-300 bg-white text-slate-400 hover:border-slate-400'
+                  }`}
+                >
+                  <span className="truncate">
+                    {selectedEducator || 'Selecione o educador responsável...'}
+                  </span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-400 transition-transform ${
+                      isEducatorDropdownOpen ? 'rotate-180 text-[#0f3b7d]' : ''
+                    }`}
+                  />
+                </button>
+
+                {/* Menu suspenso personalizado */}
+                {isEducatorDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl border border-slate-200 shadow-2xl z-50 py-2 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+                    {/* Busca rápida se houver mais de 4 educadores */}
+                    {educators.length > 4 && (
+                      <div className="px-3 pb-2 border-b border-slate-100">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                          <input
+                            type="text"
+                            autoComplete="off"
+                            value={educatorSearch}
+                            onChange={(e) => setEducatorSearch(e.target.value)}
+                            placeholder="Buscar educador..."
+                            className="w-full pl-8 pr-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="max-h-56 overflow-y-auto divide-y divide-slate-50">
+                      {/* Opção de limpar seleção */}
+                      {selectedEducator && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedEducator('');
+                            setIsEducatorDropdownOpen(false);
+                          }}
+                          className="w-full flex items-center px-3.5 py-2 text-xs text-left text-slate-400 hover:bg-slate-50 italic"
+                        >
+                          Nenhum (usar educador do relatório)
+                        </button>
+                      )}
+                      {filteredEducators.length === 0 ? (
+                        <div className="px-4 py-3 text-slate-400 text-xs italic text-center">
+                          Nenhum educador encontrado
+                        </div>
+                      ) : (
+                        filteredEducators.map((ed) => {
+                          const isSelected = selectedEducator === ed.name;
+                          return (
+                            <button
+                              key={ed.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedEducator(ed.name);
+                                setIsEducatorDropdownOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between px-3.5 py-2 text-xs text-left transition-colors ${
+                                isSelected
+                                  ? 'bg-blue-50 text-[#0f3b7d] font-bold'
+                                  : 'text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              <span>{ed.name}</span>
+                              {isSelected && (
+                                <Check className="w-3.5 h-3.5 text-[#0f3b7d] shrink-0" />
+                              )}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Se não selecionar, será usado o educador do próprio relatório (quando disponível).
+              </p>
+            </div>
+
+            {/* Info sobre filtros aplicados */}
+            <div className="md:col-span-7 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+              <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-200">
+                <span>📋 Matérias excluídas:</span>
+                <strong className="text-slate-700">{ignoredSubjects.join(', ') || 'Nenhuma'}</strong>
+              </div>
+              <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-200">
+                <span>🚫 Contratos excluídos:</span>
+                <strong className="text-slate-700">{excludedContractTypes.join(', ') || 'Nenhum'}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ETAPA 3: Inspeção e Curadoria da Tabela */}
       {items.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden space-y-4 p-6">
@@ -503,7 +689,9 @@ export default function NovaOrdemPage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-600">{item.educatorName || '—'}</td>
+                      <td className="py-2.5 px-3 text-slate-600">
+                        {selectedEducator || item.educatorName || '—'}
+                      </td>
                       <td className="py-2.5 px-3 text-center font-bold text-[#0f3b7d]">
                         {item.currentLesson}
                       </td>
@@ -552,6 +740,11 @@ export default function NovaOrdemPage() {
             <div className="text-xs text-slate-500">
               Total a gerar:{' '}
               <strong className="text-slate-900">{items.length} apostilas formatadas</strong>
+              {selectedEducator && (
+                <span className="ml-2">
+                  • Educador: <strong className="text-[#0f3b7d]">{selectedEducator}</strong>
+                </span>
+              )}
             </div>
 
             <button

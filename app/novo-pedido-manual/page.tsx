@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ClipboardList,
@@ -18,7 +18,8 @@ import {
   UserCheck,
   ChevronDown,
   Check,
-  Search
+  Search,
+  Loader2
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
 import { cleanSubject, normalizeText, formatOrderTitle } from '../../lib/domain/sanitizer';
@@ -38,8 +39,10 @@ const DEFAULT_ROW = (): ManualRow => ({
   subjectName: '',
 });
 
-export default function NovoPedidoManualPage() {
+function NovoPedidoManualContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editOrderId = searchParams.get('edit');
   const { showAlert, showConfirm, showToast } = useDialog();
 
   // Dados do Cabeçalho do Pedido (sem campo manual de Nº da Ordem)
@@ -47,6 +50,11 @@ export default function NovoPedidoManualPage() {
   const [competenceMonth, setCompetenceMonth] = useState(new Date().getMonth() + 1);
   const [competenceYear, setCompetenceYear] = useState(new Date().getFullYear());
   
+  // Modo de edição (quando carregado via ?edit=ID)
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [isLoadingEdit, setIsLoadingEdit] = useState(false);
+
   // Educador único por lista (sem preenchimento automático)
   const [selectedEducator, setSelectedEducator] = useState('');
   const [educators, setEducators] = useState<Educator[]>([]);
@@ -126,9 +134,87 @@ export default function NovoPedidoManualPage() {
     }
   };
 
+  // Carrega dados de um pedido existente para edição
+  const loadOrderForEdit = async (orderId: string) => {
+    try {
+      setIsLoadingEdit(true);
+
+      // 1. Carrega o pedido
+      const { data: order, error: orderErr } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', orderId)
+        .single();
+
+      if (orderErr || !order) {
+        showAlert('Pedido não encontrado para edição.', 'error', 'Erro');
+        return;
+      }
+
+      // 2. Carrega os itens do pedido
+      const { data: items, error: itemsErr } = await supabase
+        .from('order_items')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('source_row', { ascending: true });
+
+      if (itemsErr) throw itemsErr;
+
+      // 3. Preenche os campos
+      setTitle(order.title);
+      setCompetenceMonth(order.competence_month);
+      setCompetenceYear(order.competence_year);
+      setIsEditMode(true);
+      setEditingOrderId(orderId);
+
+      if (items && items.length > 0) {
+        // Identifica o educador predominante
+        const educatorCounts = new Map<string, number>();
+        items.forEach((item) => {
+          if (item.educator_name) {
+            educatorCounts.set(item.educator_name, (educatorCounts.get(item.educator_name) || 0) + 1);
+          }
+        });
+
+        let dominantEducator = '';
+        let maxCount = 0;
+        educatorCounts.forEach((count, name) => {
+          if (count > maxCount) {
+            maxCount = count;
+            dominantEducator = name;
+          }
+        });
+        setSelectedEducator(dominantEducator);
+
+        // Carrega linhas
+        const loadedRows: ManualRow[] = items.map((item) => ({
+          id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
+          studentName: item.student_name,
+          subjectName: item.subject_name,
+        }));
+
+        setRows(loadedRows);
+      }
+
+      showToast(`Pedido "${order.title}" carregado para edição.`, 'info');
+    } catch (err: any) {
+      console.error('Erro ao carregar pedido para edição:', err);
+      showAlert(`Erro ao carregar pedido: ${err.message}`, 'error', 'Falha');
+    } finally {
+      setIsLoadingEdit(false);
+    }
+  };
+
   useEffect(() => {
     loadInitialData();
   }, []);
+
+  // Carrega pedido para edição quando o parâmetro edit= está presente
+  useEffect(() => {
+    if (editOrderId) {
+      loadOrderForEdit(editOrderId);
+    }
+  }, [editOrderId]);
 
   // Adiciona linha
   const handleAddRow = () => {
@@ -312,99 +398,170 @@ export default function NovoPedidoManualPage() {
       const unitId = process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
       const competenceDateStr = `${competenceYear}-${String(competenceMonth).padStart(2, '0')}-01`;
 
-      // 1. Obtém próxima sequência automaticamente no banco de dados (o usuário não precisa preencher)
-      const { data: seqData } = await supabase.rpc('get_next_order_sequence', {
-        p_unit_id: unitId,
-      });
+      if (isEditMode && editingOrderId) {
+        // ============= MODO EDIÇÃO: Atualiza pedido existente =============
+        
+        // 1. Atualiza o cabeçalho do pedido
+        const cleanTitleStr = formatOrderTitle(title);
+        const { error: orderErr } = await supabase
+          .from('orders')
+          .update({
+            title: cleanTitleStr,
+            competence_month: Number(competenceMonth),
+            competence_year: Number(competenceYear),
+            competence_date: competenceDateStr,
+            total_items: validRows.length,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingOrderId);
 
-      const nextSeq = seqData?.[0]?.next_seq || 1;
-      const orderNum = seqData?.[0]?.next_number || `#${String(nextSeq).padStart(3, '0')}`;
-      const cleanTitleStr = formatOrderTitle(title, `ENTREGA DE MATERIAL - HISTÓRICO ${orderNum}`);
+        if (orderErr) throw orderErr;
 
-      // 2. Grava o Pedido
-      const { data: newOrder, error: orderErr } = await supabase
-        .from('orders')
-        .insert({
-          unit_id: unitId,
-          order_number: orderNum,
-          sequence_num: nextSeq,
-          title: cleanTitleStr,
-          status: 'archived',
-          competence_month: Number(competenceMonth),
-          competence_year: Number(competenceYear),
-          competence_date: competenceDateStr,
-          total_items: validRows.length,
-          archived_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
+        // 2. Remove todos os itens antigos do pedido
+        const { error: deleteErr } = await supabase
+          .from('order_items')
+          .delete()
+          .eq('order_id', editingOrderId);
 
-      if (orderErr) throw orderErr;
+        if (deleteErr) throw deleteErr;
 
-      // 3. Grava os Itens do Pedido com o Educador da lista e Liberação automática
-      const itemsToInsert = validRows.map((row, idx) => {
-        const fp = createDuplicateFingerprint(row.studentName, row.subjectName);
-        const isHistorical = historicalMap.has(fp);
-        const matchTitle = isHistorical ? historicalMap.get(fp) : null;
+        // 3. Insere os itens atualizados
+        const itemsToInsert = validRows.map((row, idx) => {
+          const fp = createDuplicateFingerprint(row.studentName, row.subjectName);
+          const isHistorical = historicalMap.has(fp);
+          const matchTitle = isHistorical ? historicalMap.get(fp) : null;
 
-        const isInternal = validRows.some(
-          (other, otherIdx) =>
-            otherIdx < idx &&
-            createDuplicateFingerprint(other.studentName, other.subjectName) === fp
-        );
+          const isInternal = validRows.some(
+            (other, otherIdx) =>
+              otherIdx < idx &&
+              createDuplicateFingerprint(other.studentName, other.subjectName) === fp
+          );
 
-        const cleanSubj = cleanSubject(row.subjectName);
+          const cleanSubj = cleanSubject(row.subjectName);
 
-        return {
-          order_id: newOrder.id,
-          student_name: row.studentName.trim(),
-          student_name_normalized: normalizeText(row.studentName),
-          subject_name: cleanSubj,
-          subject_name_normalized: normalizeText(cleanSubj),
-          raw_subject_name: row.subjectName.trim(),
-          educator_name: selectedEducator.trim(),
-          delivery_date: competenceDateStr,
-          delivery_status: 'Entregue',
-          release_status: 'Liberado',
-          current_lesson: 0,
-          duplicate_fingerprint: fp,
-          is_internal_duplicate: isInternal,
-          is_historical_duplicate: isHistorical,
-          historical_match_order_title: matchTitle,
-          source_row: idx + 1,
-        };
-      });
-
-      const { error: itemsErr } = await supabase.from('order_items').insert(itemsToInsert);
-      if (itemsErr) throw itemsErr;
-
-      showToast(`Lista de ${validRows.length} apostilas salva com sucesso no histórico!`, 'success');
-
-      if (redirectAfterSave) {
-        router.push('/historico');
-      } else {
-        // Prepara tela para digitar a próxima lista impressa
-        setSelectedEducator(''); // Limpa o educador para a próxima lista
-        setRows([
-          DEFAULT_ROW(),
-          DEFAULT_ROW(),
-          DEFAULT_ROW(),
-          DEFAULT_ROW(),
-          DEFAULT_ROW(),
-        ]);
-
-        // Atualiza mapa de duplicidades local
-        validRows.forEach((r) => {
-          const fp = createDuplicateFingerprint(r.studentName, r.subjectName);
-          historicalMap.set(fp, cleanTitleStr);
+          return {
+            order_id: editingOrderId,
+            student_name: row.studentName.trim(),
+            student_name_normalized: normalizeText(row.studentName),
+            subject_name: cleanSubj,
+            subject_name_normalized: normalizeText(cleanSubj),
+            raw_subject_name: row.subjectName.trim(),
+            educator_name: selectedEducator.trim(),
+            delivery_date: competenceDateStr,
+            delivery_status: 'Entregue',
+            release_status: 'Liberado',
+            current_lesson: 0,
+            duplicate_fingerprint: fp,
+            is_internal_duplicate: isInternal,
+            is_historical_duplicate: isHistorical,
+            historical_match_order_title: matchTitle,
+            source_row: idx + 1,
+          };
         });
 
-        // Foca no topo da tabela
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        setTimeout(() => {
-          const firstInput = document.getElementById('student-input-0') as HTMLInputElement | null;
-          if (firstInput) firstInput.focus();
-        }, 100);
+        const { error: itemsErr } = await supabase.from('order_items').insert(itemsToInsert);
+        if (itemsErr) throw itemsErr;
+
+        showToast(`Pedido atualizado com sucesso com ${validRows.length} apostilas!`, 'success');
+        router.push('/historico');
+
+      } else {
+        // ============= MODO CRIAÇÃO: Cria novo pedido =============
+
+        // 1. Obtém próxima sequência automaticamente no banco de dados
+        const { data: seqData } = await supabase.rpc('get_next_order_sequence', {
+          p_unit_id: unitId,
+        });
+
+        const nextSeq = seqData?.[0]?.next_seq || 1;
+        const orderNum = seqData?.[0]?.next_number || `#${String(nextSeq).padStart(3, '0')}`;
+        const cleanTitleStr = formatOrderTitle(title, `ENTREGA DE MATERIAL - HISTÓRICO ${orderNum}`);
+
+        // 2. Grava o Pedido
+        const { data: newOrder, error: orderErr } = await supabase
+          .from('orders')
+          .insert({
+            unit_id: unitId,
+            order_number: orderNum,
+            sequence_num: nextSeq,
+            title: cleanTitleStr,
+            status: 'archived',
+            competence_month: Number(competenceMonth),
+            competence_year: Number(competenceYear),
+            competence_date: competenceDateStr,
+            total_items: validRows.length,
+            archived_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (orderErr) throw orderErr;
+
+        // 3. Grava os Itens do Pedido com o Educador da lista e Liberação automática
+        const itemsToInsert = validRows.map((row, idx) => {
+          const fp = createDuplicateFingerprint(row.studentName, row.subjectName);
+          const isHistorical = historicalMap.has(fp);
+          const matchTitle = isHistorical ? historicalMap.get(fp) : null;
+
+          const isInternal = validRows.some(
+            (other, otherIdx) =>
+              otherIdx < idx &&
+              createDuplicateFingerprint(other.studentName, other.subjectName) === fp
+          );
+
+          const cleanSubj = cleanSubject(row.subjectName);
+
+          return {
+            order_id: newOrder.id,
+            student_name: row.studentName.trim(),
+            student_name_normalized: normalizeText(row.studentName),
+            subject_name: cleanSubj,
+            subject_name_normalized: normalizeText(cleanSubj),
+            raw_subject_name: row.subjectName.trim(),
+            educator_name: selectedEducator.trim(),
+            delivery_date: competenceDateStr,
+            delivery_status: 'Entregue',
+            release_status: 'Liberado',
+            current_lesson: 0,
+            duplicate_fingerprint: fp,
+            is_internal_duplicate: isInternal,
+            is_historical_duplicate: isHistorical,
+            historical_match_order_title: matchTitle,
+            source_row: idx + 1,
+          };
+        });
+
+        const { error: itemsErr } = await supabase.from('order_items').insert(itemsToInsert);
+        if (itemsErr) throw itemsErr;
+
+        showToast(`Lista de ${validRows.length} apostilas salva com sucesso no histórico!`, 'success');
+
+        if (redirectAfterSave) {
+          router.push('/historico');
+        } else {
+          // Prepara tela para digitar a próxima lista impressa
+          setSelectedEducator(''); // Limpa o educador para a próxima lista
+          setRows([
+            DEFAULT_ROW(),
+            DEFAULT_ROW(),
+            DEFAULT_ROW(),
+            DEFAULT_ROW(),
+            DEFAULT_ROW(),
+          ]);
+
+          // Atualiza mapa de duplicidades local
+          validRows.forEach((r) => {
+            const fp = createDuplicateFingerprint(r.studentName, r.subjectName);
+            historicalMap.set(fp, cleanTitleStr);
+          });
+
+          // Foca no topo da tabela
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          setTimeout(() => {
+            const firstInput = document.getElementById('student-input-0') as HTMLInputElement | null;
+            if (firstInput) firstInput.focus();
+          }, 100);
+        }
       }
     } catch (err: any) {
       console.error('Erro ao salvar pedido manual:', err);
@@ -423,23 +580,39 @@ export default function NovoPedidoManualPage() {
     ed.name.toLowerCase().includes(educatorSearch.toLowerCase())
   );
 
+  // Loading state para edição
+  if (isLoadingEdit) {
+    return (
+      <div className="p-8 flex items-center justify-center gap-3 text-slate-500">
+        <Loader2 className="w-5 h-5 animate-spin text-[#0f3b7d]" />
+        <span className="text-sm font-medium">Carregando pedido para edição...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 space-y-6 max-w-6xl mx-auto w-full">
       {/* Cabeçalho da Página */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#0f3b7d]/10 text-[#0f3b7d] border border-[#0f3b7d]/20">
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+              isEditMode
+                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                : 'bg-[#0f3b7d]/10 text-[#0f3b7d] border-[#0f3b7d]/20'
+            }`}>
               <ClipboardList className="w-3.5 h-3.5 mr-1" />
-              Lançamento Rápido
+              {isEditMode ? 'Editando Pedido' : 'Lançamento Rápido'}
             </span>
             <span className="text-xs text-slate-400">• Digitação Focada (Aluno + Matéria)</span>
           </div>
           <h1 className="text-2xl font-bold text-slate-900 mt-1">
-            Cadastrar Pedido Manualmente (Listas Impressas)
+            {isEditMode ? 'Editar Pedido Existente' : 'Cadastrar Pedido Manualmente (Listas Impressas)'}
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Defina o Educador e Competência da folha no topo e digite apenas o Aluno e a Matéria na tabela.
+            {isEditMode
+              ? 'Edite os dados do pedido carregado abaixo e salve as alterações.'
+              : 'Defina o Educador e Competência da folha no topo e digite apenas o Aluno e a Matéria na tabela.'}
           </p>
         </div>
 
@@ -468,10 +641,10 @@ export default function NovoPedidoManualPage() {
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
             <Calendar className="w-4 h-4 text-[#0f3b7d]" />
-            Cabeçalho da Folha Impressa
+            {isEditMode ? 'Dados do Pedido em Edição' : 'Cabeçalho da Folha Impressa'}
           </h2>
           <span className="text-xs text-slate-400">
-            Preenchimento simplificado e direto
+            {isEditMode ? 'Altere os dados conforme necessário' : 'Preenchimento simplificado e direto'}
           </span>
         </div>
 
@@ -622,7 +795,7 @@ export default function NovoPedidoManualPage() {
           <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
             <Lock className="w-3 h-3 text-slate-400" />
             <span>Status no Histórico:</span>
-            <strong className="text-[#0f3b7d]">Arquivado / Concluído</strong>
+            <strong className="text-[#0f3b7d]">{isEditMode ? 'Atualização In-Place' : 'Arquivado / Concluído'}</strong>
           </div>
         </div>
       </div>
@@ -778,28 +951,52 @@ export default function NovoPedidoManualPage() {
               <span>+ Linha</span>
             </button>
 
-            {/* Salvar e Ir para Histórico */}
-            <button
-              type="button"
-              disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
-              onClick={() => handleSaveOrder(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[#0f3b7d] text-[#0f3b7d] font-bold text-xs hover:bg-blue-50 disabled:opacity-50"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>Salvar e Ver Histórico</span>
-            </button>
+            {isEditMode ? (
+              /* Botões de edição */
+              <>
+                <Link
+                  href="/historico"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50"
+                >
+                  <span>Cancelar</span>
+                </Link>
+                <button
+                  type="button"
+                  disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
+                  onClick={() => handleSaveOrder(true)}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-[#0f3b7d] text-white font-bold text-xs hover:bg-[#0a2e68] shadow-md transition-all disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{isSaving ? 'Salvando Alterações...' : 'Salvar Alterações'}</span>
+                </button>
+              </>
+            ) : (
+              /* Botões de criação */
+              <>
+                {/* Salvar e Ir para Histórico */}
+                <button
+                  type="button"
+                  disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
+                  onClick={() => handleSaveOrder(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[#0f3b7d] text-[#0f3b7d] font-bold text-xs hover:bg-blue-50 disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Salvar e Ver Histórico</span>
+                </button>
 
-            {/* Salvar e Lançar Próxima Lista Impressa */}
-            <button
-              type="button"
-              disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
-              onClick={() => handleSaveOrder(false)}
-              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-[#0f3b7d] text-white font-bold text-xs hover:bg-[#0a2e68] shadow-md transition-all disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              <span>{isSaving ? 'Salvando Pedido...' : 'Salvar e Lançar Próxima Lista'}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+                {/* Salvar e Lançar Próxima Lista Impressa */}
+                <button
+                  type="button"
+                  disabled={isSaving || validCount === 0 || !selectedEducator.trim()}
+                  onClick={() => handleSaveOrder(false)}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-[#0f3b7d] text-white font-bold text-xs hover:bg-[#0a2e68] shadow-md transition-all disabled:opacity-50"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>{isSaving ? 'Salvando Pedido...' : 'Salvar e Lançar Próxima Lista'}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -832,7 +1029,7 @@ export default function NovoPedidoManualPage() {
               rows={8}
               value={pasteContent}
               onChange={(e) => setPasteContent(e.target.value)}
-              placeholder="Exemplo:&#10;Maria da Silva	Windows 11&#10;João Pereira	Excel 2021&#10;Ana Paula Santos	161869_Word 2021"
+              placeholder={"Exemplo:\nMaria da Silva\tWindows 11\nJoão Pereira\tExcel 2021\nAna Paula Santos\t161869_Word 2021"}
               className="w-full p-3 font-mono text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
             />
 
@@ -857,5 +1054,13 @@ export default function NovoPedidoManualPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function NovoPedidoManualPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">Carregando...</div>}>
+      <NovoPedidoManualContent />
+    </Suspense>
   );
 }
