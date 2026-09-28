@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Sparkles, RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { RefreshCw, CheckCircle2, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { supabase } from '../../../lib/supabase/client';
 import { useDialog } from '../../../components/ui/dialog';
 
@@ -77,7 +77,7 @@ export default function HigienizacaoPage() {
     <div className="p-8 space-y-6 max-w-4xl mx-auto w-full">
       <div className="border-b border-slate-200 pb-5">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-          <Sparkles className="w-6 h-6 text-[#0f3b7d]" />
+          <ShieldCheck className="w-6 h-6 text-[#0f3b7d]" />
           Ferramentas de Higienização da Base
         </h1>
         <p className="text-xs text-slate-500 mt-1">

@@ -10,7 +10,7 @@ import {
   History,
   GraduationCap,
   Settings,
-  Sparkles,
+  ShieldCheck,
   BookOpen
 } from 'lucide-react';
 
@@ -21,7 +21,7 @@ const menuItems = [
   { label: 'Histórico', href: '/historico', icon: History },
   { label: 'Educadores', href: '/configuracoes/educadores', icon: GraduationCap },
   { label: 'Configurações', href: '/configuracoes', icon: Settings },
-  { label: 'Higienização', href: '/ferramentas/higienizacao', icon: Sparkles },
+  { label: 'Higienização', href: '/ferramentas/higienizacao', icon: ShieldCheck },
 ];
 
 export function Sidebar() {

@@ -20,7 +20,6 @@ import {
   Check,
   Search,
   Loader2,
-  Sparkles,
   RotateCcw
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
@@ -773,7 +772,7 @@ function NovoPedidoManualContent() {
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-[#0f3b7d] text-white rounded-lg shadow-sm">
-              <Sparkles className="w-5 h-5" />
+              <ClipboardList className="w-5 h-5" />
             </div>
             <div>
               <p className="font-bold text-slate-800 text-sm">
@@ -974,12 +973,6 @@ function NovoPedidoManualContent() {
 
           <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
             <Lock className="w-3 h-3 text-slate-400" />
-            <span>Liberação:</span>
-            <strong className="text-emerald-700">Liberado (Automático)</strong>
-          </div>
-
-          <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
-            <Lock className="w-3 h-3 text-slate-400" />
             <span>Status no Histórico:</span>
             <strong className="text-[#0f3b7d]">{isEditMode ? 'Atualização In-Place' : 'Arquivado / Concluído'}</strong>
           </div>
@@ -1029,11 +1022,7 @@ function NovoPedidoManualContent() {
             >
               Limpar Vazias
             </button>
-            {displayEducatorCol ? (
-              <span className="text-[11px] text-[#0f3b7d] font-semibold bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200">
-                Coluna Educador Ativa
-              </span>
-            ) : (
+            {!displayEducatorCol && (
               <button
                 type="button"
                 onClick={() => setShowEducatorColumn(true)}

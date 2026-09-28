@@ -396,8 +396,7 @@ function HistoricoContent() {
                     <td className="py-3 px-4 text-center font-bold text-slate-700">{order.total_items}</td>
                     <td className="py-3 px-4 text-slate-600">
                       {order.dominant_educator ? (
-                        <span className="inline-flex items-center gap-1 text-xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#0f3b7d] shrink-0"></span>
+                        <span className="text-xs text-slate-700">
                           {order.dominant_educator}
                         </span>
                       ) : (

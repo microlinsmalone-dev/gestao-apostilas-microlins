@@ -11,7 +11,6 @@ import {
   PlusCircle,
   History,
   GraduationCap,
-  Sparkles,
   ExternalLink,
   ClipboardList
 } from 'lucide-react';

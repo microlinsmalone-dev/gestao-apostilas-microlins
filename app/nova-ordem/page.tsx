@@ -24,7 +24,6 @@ import {
   ArrowDown,
   Users,
   FileText,
-  Sparkles,
   Layers,
   PenLine,
   Zap,
@@ -897,14 +896,9 @@ export default function NovaOrdemPage() {
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-bold uppercase tracking-wider text-[#0f3b7d] flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <FileSpreadsheet className="w-3.5 h-3.5 text-[#0f3b7d]" />
                 3. Base de Contratos (Complementar)
               </label>
-              {baseContratos && (
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
-                  Ativa
-                </span>
-              )}
             </div>
 
             {baseContratos ? (
@@ -1080,8 +1074,8 @@ export default function NovaOrdemPage() {
                 <strong className="text-slate-700">{excludedContractTypes.join(', ') || 'Nenhum'}</strong>
               </div>
               {crossedEducatorsCount > 0 && (
-                <div className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1.5 rounded-md border border-emerald-200 text-emerald-800 font-semibold">
-                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-md border border-slate-200 text-slate-700 font-medium">
+                  <Users className="w-3.5 h-3.5 text-slate-500" />
                   <span>Educadores identificados:</span>
                   <strong>{crossedEducatorsCount} de {items.length} alunos</strong>
                 </div>
@@ -1503,8 +1497,7 @@ export default function NovaOrdemPage() {
                       </td>
                       <td className="py-2.5 px-3">
                         {itemEducator ? (
-                          <span className="font-semibold text-slate-800 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+                          <span className="font-semibold text-slate-800">
                             {itemEducator}
                           </span>
                         ) : (
