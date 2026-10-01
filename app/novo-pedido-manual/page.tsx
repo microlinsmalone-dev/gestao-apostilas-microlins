@@ -629,16 +629,6 @@ function NovoPedidoManualContent() {
       return;
     }
 
-    const hasAnyEducator = Boolean(selectedEducator.trim()) || validRows.some((r) => Boolean(r.educatorName?.trim()));
-    if (!isFromImport && !hasAnyEducator) {
-      showAlert(
-        'Por favor, selecione o Educador desta lista antes de salvar.',
-        'warning',
-        'Educador Obrigatório'
-      );
-      return;
-    }
-
     try {
       setIsSaving(true);
       isSavingRef.current = true;
@@ -896,8 +886,7 @@ function NovoPedidoManualContent() {
   );
   const hasAnyRowEducator = rows.some((r) => Boolean(r.educatorName?.trim()));
   const displayEducatorCol = showEducatorColumn || hasAnyRowEducator || isFromImport;
-  const hasAnyEducator = Boolean(selectedEducator.trim()) || hasAnyRowEducator;
-  const canSave = !isSaving && validCount > 0 && (isFromImport || hasAnyEducator);
+  const canSave = !isSaving && validCount > 0;
 
   // Loading state para edição
   if (isLoadingEdit) {
@@ -1069,7 +1058,8 @@ function NovoPedidoManualContent() {
           <div className="md:col-span-4" ref={educatorDropdownRef}>
             <label className="block font-semibold text-[#0f3b7d] mb-1 flex items-center gap-1">
               <UserCheck className="w-3.5 h-3.5" />
-              Educador desta Lista *
+              Educador desta Lista
+              <span className="text-[10px] text-slate-400 font-normal ml-1">(opcional)</span>
             </label>
             <div className="relative">
               {/* Botão seletor personalizado */}
@@ -1082,11 +1072,11 @@ function NovoPedidoManualContent() {
                 className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left text-xs font-semibold transition-all ${
                   selectedEducator
                     ? 'border-[#0f3b7d] bg-blue-50/40 text-slate-900 shadow-sm'
-                    : 'border-slate-300 bg-white text-slate-400 hover:border-slate-400'
+                    : 'border-slate-300 bg-white text-slate-500 hover:border-slate-400'
                 }`}
               >
                 <span className="truncate">
-                  {selectedEducator || 'Selecione o educador...'}
+                  {selectedEducator || 'Nenhum (Sem educador)'}
                 </span>
                 <ChevronDown
                   className={`w-4 h-4 text-slate-400 transition-transform ${
