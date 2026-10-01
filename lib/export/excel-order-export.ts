@@ -1,110 +1,74 @@
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { Order, OrderItem } from '../../types';
 
 /**
  * Utilitário oficial de exportação de pedidos para Excel (.xlsx)
- * baseado na estrutura fiel de Modelo_Impressao.xlsx:
- * - Cabeçalho mesclado em B2:G2 com o título do pedido
- * - Linha 4 com cabeçalhos: Aluno, Matéria, Educador, Data, Entrega, Liberação
- * - Linhas de dados a partir da linha 5
- * - Linhas extras em branco para assinaturas manuais
- * - Configuração de página em A4 Paisagem (Landscape) com margens estreitas
+ * baseado 100% na estrutura, formatação e estilos de Modelo_Impressao.xlsx:
+ * - Cabeçalho mesclado em B2:G2 com o título do pedido em Calibri 14pt Negrito Centralizado com bordas
+ * - Linha 4 com cabeçalhos: Aluno, Matéria, Educador, Data, Entrega, Liberação em Calibri 11pt Negrito com bordas
+ * - Linhas de dados a partir da linha 5 com bordas pretas finas em todas as células
+ * - Linhas extras em branco com bordas para anotações e assinaturas manuais
+ * - Larguras de coluna e alturas de linha idênticas ao Modelo_Impressao.xlsx
+ * - Configuração de página em A4 Paisagem (Landscape) com margens estreitas (0.5 cm)
  */
+
+const thinBorder = {
+  top: { style: 'thin', color: { rgb: '000000' } },
+  bottom: { style: 'thin', color: { rgb: '000000' } },
+  left: { style: 'thin', color: { rgb: '000000' } },
+  right: { style: 'thin', color: { rgb: '000000' } },
+};
+
+const titleStyle = {
+  font: { name: 'Calibri', sz: 14, bold: true },
+  alignment: { horizontal: 'center', vertical: 'center' },
+  border: thinBorder,
+};
+
+const headerStyle = {
+  font: { name: 'Calibri', sz: 11, bold: true },
+  alignment: { horizontal: 'center', vertical: 'center' },
+  border: thinBorder,
+};
+
+const dataStyleLeft = {
+  font: { name: 'Calibri', sz: 11 },
+  alignment: { horizontal: 'left', vertical: 'center' },
+  border: thinBorder,
+};
+
+const dataStyleCenter = {
+  font: { name: 'Calibri', sz: 11 },
+  alignment: { horizontal: 'center', vertical: 'center' },
+  border: thinBorder,
+};
 
 export async function exportOrderToExcel(order: Order, items: OrderItem[]): Promise<void> {
   const cleanTitle = (order.title || 'ENTREGA DE MATERIAL').toUpperCase();
   const fileName = `${cleanTitle.replace(/[\\/*?:"<>|]/g, '_')}.xlsx`;
 
-  try {
-    // 1. Tenta carregar o template original oficial
-    const response = await fetch('/Modelo_Impressao.xlsx');
-    if (!response.ok) {
-      throw new Error(`Falha ao obter modelo base: status ${response.status}`);
-    }
+  const ws: any = {};
 
-    const arrayBuffer = await response.arrayBuffer();
-    const wb = XLSX.read(arrayBuffer, { type: 'array', cellStyles: true });
-    const sheetName = wb.SheetNames[0] || 'Planilha1';
-    const ws = wb.Sheets[sheetName];
+  // 1. Título em B2 (Mesclado de B2 até G2)
+  ws['B2'] = { t: 's', v: cleanTitle, s: titleStyle };
+  ws['C2'] = { t: 's', v: '', s: titleStyle };
+  ws['D2'] = { t: 's', v: '', s: titleStyle };
+  ws['E2'] = { t: 's', v: '', s: titleStyle };
+  ws['F2'] = { t: 's', v: '', s: titleStyle };
+  ws['G2'] = { t: 's', v: '', s: titleStyle };
 
-    // 2. Atualiza o título na célula B2 (mesclada B2:G2)
-    const baseTitleStyle = ws['B2']?.s;
-    ws['B2'] = { t: 's', v: cleanTitle, s: baseTitleStyle };
+  // 2. Cabeçalhos oficiais em B4:G4
+  ws['B4'] = { t: 's', v: 'Aluno', s: headerStyle };
+  ws['C4'] = { t: 's', v: 'Matéria', s: headerStyle };
+  ws['D4'] = { t: 's', v: 'Educador', s: headerStyle };
+  ws['E4'] = { t: 's', v: 'Data', s: headerStyle };
+  ws['F4'] = { t: 's', v: 'Entrega', s: headerStyle };
+  ws['G4'] = { t: 's', v: 'Liberação', s: headerStyle };
 
-    // 3. Estilo base das células de dados (pega da linha 5 do modelo se existir)
-    const baseDataStyle = ws['B5']?.s;
-
-    // 4. Preenche as linhas a partir da linha 5 (1-based row = 5)
-    const startRow = 5;
-    items.forEach((item, idx) => {
-      const rowNum = startRow + idx;
-      let formattedDate = '';
-      if (item.delivery_date) {
-        const parts = item.delivery_date.split('-');
-        if (parts.length === 3) {
-          formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
-        } else {
-          formattedDate = item.delivery_date;
-        }
-      }
-
-      ws[`B${rowNum}`] = { t: 's', v: item.student_name || '', s: baseDataStyle };
-      ws[`C${rowNum}`] = { t: 's', v: item.subject_name || '', s: baseDataStyle };
-      ws[`D${rowNum}`] = { t: 's', v: item.educator_name || '', s: baseDataStyle };
-      ws[`E${rowNum}`] = { t: 's', v: formattedDate, s: baseDataStyle };
-      ws[`F${rowNum}`] = { t: 's', v: item.delivery_status || '', s: baseDataStyle };
-      ws[`G${rowNum}`] = { t: 's', v: item.release_status || '', s: baseDataStyle };
-    });
-
-    // 5. Adiciona 15 linhas extras em branco com bordas para assinaturas manuais
-    const totalDataRows = items.length;
-    const extraBlankRows = 15;
-    for (let i = 0; i < extraBlankRows; i++) {
-      const rowNum = startRow + totalDataRows + i;
-      ws[`B${rowNum}`] = { t: 's', v: '', s: baseDataStyle };
-      ws[`C${rowNum}`] = { t: 's', v: '', s: baseDataStyle };
-      ws[`D${rowNum}`] = { t: 's', v: '', s: baseDataStyle };
-      ws[`E${rowNum}`] = { t: 's', v: '', s: baseDataStyle };
-      ws[`F${rowNum}`] = { t: 's', v: '', s: baseDataStyle };
-      ws[`G${rowNum}`] = { t: 's', v: '', s: baseDataStyle };
-    }
-
-    // 6. Atualiza o range total do worksheet para que o Excel mostre todas as linhas
-    const finalRow = startRow + totalDataRows + extraBlankRows - 1;
-    ws['!ref'] = `A1:G${finalRow}`;
-
-    // 7. Salva e inicia download
-    XLSX.writeFile(wb, fileName);
-  } catch (err) {
-    console.warn('Usando gerador programático de Excel:', err);
-    exportOrderToExcelProgrammatic(order, items, fileName, cleanTitle);
-  }
-}
-
-/**
- * Gerador programático autônomo (caso o arquivo estático não seja acessível)
- * replica exatamente as medidas, colunas e configurações do Modelo_Impressao.xlsx
- */
-function exportOrderToExcelProgrammatic(
-  order: Order,
-  items: OrderItem[],
-  fileName: string,
-  cleanTitle: string
-): void {
-  // Matriz de dados (AOA)
-  // Linha 1: vazia
-  // Linha 2: Coluna B tem o título
-  // Linha 3: vazia
-  // Linha 4: Cabeçalhos (B4: Aluno, C4: Matéria, D4: Educador, E4: Data, F4: Entrega, G4: Liberação)
-  const aoa: any[][] = [
-    [], // Linha 1
-    ['', cleanTitle, '', '', '', '', ''], // Linha 2 (B2 terá o título mesclado)
-    [], // Linha 3
-    ['', 'Aluno', 'Matéria', 'Educador', 'Data', 'Entrega', 'Liberação'], // Linha 4
-  ];
-
-  // Linhas de dados
-  items.forEach((item) => {
+  // 3. Preenchimento dos itens a partir da linha 5
+  const startRow = 5;
+  items.forEach((item, idx) => {
+    const rowNum = startRow + idx;
     let formattedDate = '';
     if (item.delivery_date) {
       const parts = item.delivery_date.split('-');
@@ -115,28 +79,35 @@ function exportOrderToExcelProgrammatic(
       }
     }
 
-    aoa.push([
-      '',
-      item.student_name || '',
-      item.subject_name || '',
-      item.educator_name || '',
-      formattedDate,
-      item.delivery_status || '',
-      item.release_status || '',
-    ]);
+    ws[`B${rowNum}`] = { t: 's', v: item.student_name || '', s: dataStyleLeft };
+    ws[`C${rowNum}`] = { t: 's', v: item.subject_name || '', s: dataStyleLeft };
+    ws[`D${rowNum}`] = { t: 's', v: item.educator_name || '', s: dataStyleCenter };
+    ws[`E${rowNum}`] = { t: 's', v: formattedDate, s: dataStyleCenter };
+    ws[`F${rowNum}`] = { t: 's', v: item.delivery_status || '', s: dataStyleCenter };
+    ws[`G${rowNum}`] = { t: 's', v: item.release_status || '', s: dataStyleCenter };
   });
 
-  // 15 linhas extras em branco
-  for (let i = 0; i < 15; i++) {
-    aoa.push(['', '', '', '', '', '', '']);
+  // 4. Adiciona linhas extras em branco com bordas para assinaturas manuais
+  const extraBlankRows = 15;
+  const startBlankRow = startRow + items.length;
+  const totalRows = Math.max(17, startBlankRow + extraBlankRows - 1);
+
+  for (let r = startBlankRow; r <= totalRows; r++) {
+    ws[`B${r}`] = { t: 's', v: '', s: dataStyleLeft };
+    ws[`C${r}`] = { t: 's', v: '', s: dataStyleLeft };
+    ws[`D${r}`] = { t: 's', v: '', s: dataStyleCenter };
+    ws[`E${r}`] = { t: 's', v: '', s: dataStyleCenter };
+    ws[`F${r}`] = { t: 's', v: '', s: dataStyleCenter };
+    ws[`G${r}`] = { t: 's', v: '', s: dataStyleCenter };
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // 5. Configurações estruturais idênticas ao Modelo_Impressao.xlsx
+  ws['!ref'] = `B2:G${totalRows}`;
+  ws['!merges'] = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 6 } }];
 
-  // Configurações exatas extraídas do Modelo_Impressao.xlsx:
-  // Larguras das colunas:
+  // Larguras exatas das colunas do modelo
   ws['!cols'] = [
-    { wch: 9.14 },   // Coluna A (margem esquerda)
+    { wch: 9.14 },   // Coluna A (margem lateral da planilha)
     { wch: 40.71 },  // Coluna B (Aluno)
     { wch: 40.71 },  // Coluna C (Matéria)
     { wch: 16.29 },  // Coluna D (Educador)
@@ -145,21 +116,16 @@ function exportOrderToExcelProgrammatic(
     { wch: 10.86 },  // Coluna G (Liberação)
   ];
 
-  // Mesclagem B2:G2 para o título do pedido
-  ws['!merges'] = [
-    { s: { r: 1, c: 1 }, e: { r: 1, c: 6 } }
-  ];
-
-  // Alturas das linhas
+  // Alturas das linhas principais
   ws['!rows'] = [
     { hpt: 15 },    // Linha 1
-    { hpt: 35.25 }, // Linha 2 (Título)
-    { hpt: 15 },    // Linha 3
-    { hpt: 24 },    // Linha 4 (Cabeçalhos)
+    { hpt: 35.25 }, // Linha 2 (Título em destaque)
+    { hpt: 15 },    // Linha 3 (Espaçamento)
+    { hpt: 24.0 },  // Linha 4 (Cabeçalhos)
   ];
 
   // Configurações de impressão em A4 Paisagem
-  (ws as any)['!pageSetup'] = {
+  ws['!pageSetup'] = {
     orientation: 'landscape',
     paperSize: 9, // A4
     fitToPage: true,
@@ -167,7 +133,7 @@ function exportOrderToExcelProgrammatic(
   };
 
   // Margens estreitas (0.5 cm)
-  (ws as any)['!margins'] = {
+  ws['!margins'] = {
     left: 0.196,
     right: 0.196,
     top: 0.196,
@@ -177,6 +143,8 @@ function exportOrderToExcelProgrammatic(
   };
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Pedido');
+  XLSX.utils.book_append_sheet(wb, ws, 'Planilha1');
+
+  // Dispara o download diretamente no navegador
   XLSX.writeFile(wb, fileName);
 }

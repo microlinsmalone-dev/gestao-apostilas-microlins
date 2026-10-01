@@ -8,44 +8,51 @@ interface PrintableOrderSheetProps {
 
 /**
  * Componente de Impressão Oficial de Pedidos de Apostilas
- * Reproduz fielmente a formatação do Modelo_Impressao.xlsx:
- * - Cabeçalho com caixa de título destacada e borda preta
- * - Tabela com as colunas: Aluno, Matéria, Educador, Data, Entrega, Liberação
+ * Reproduz 100% fielmente a formatação do Modelo_Impressao.xlsx:
+ * - Cabeçalho mesclado equivalente a B2:G2 com borda preta fina, Calibri 14pt negrito, centralizado
+ * - Tabela oficial com as colunas: Aluno, Matéria, Educador, Data, Entrega, Liberação
+ * - Proporções exatas das colunas do Excel: Aluno (28.2%), Matéria (28.2%), Educador (11.3%), Data (9.9%), Entrega (14.8%), Liberação (7.6%)
  * - Linhas com bordas pretas finas de 1px
- * - 15 linhas extras em branco para anotações e assinaturas manuais
- * - Otimizado para A4 Paisagem (Landscape)
+ * - Linhas extras em branco para assinaturas manuais
+ * - Otimizado para folha A4 Paisagem (Landscape)
  */
 export function PrintableOrderSheet({ order, items }: PrintableOrderSheetProps) {
   const cleanTitle = (order.title || 'ENTREGA DE MATERIAL').toUpperCase();
   const extraBlankRowsCount = 15;
 
   return (
-    <div className="printable-order-sheet w-full bg-white text-black p-2 font-sans select-none">
+    <div
+      className="printable-order-sheet w-full bg-white text-black p-1 select-none"
+      style={{ fontFamily: 'Calibri, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
+    >
       {/* 1. Cabeçalho Mesclado (Equivalente à célula B2:G2 do Excel) */}
-      <div className="w-full border border-black py-2.5 px-4 text-center font-bold text-base md:text-lg tracking-wide uppercase mb-3 bg-white">
+      <div
+        className="w-full border border-black text-center font-bold tracking-wide uppercase mb-3 bg-white flex items-center justify-center"
+        style={{ height: '47px', fontSize: '14pt' }}
+      >
         {cleanTitle}
       </div>
 
       {/* 2. Tabela Oficial de Materiais (Linhas 4+ do Excel) */}
-      <table className="w-full border-collapse border border-black text-xs" style={{ pageBreakInside: 'auto' }}>
+      <table className="w-full border-collapse border border-black" style={{ pageBreakInside: 'auto', fontSize: '11pt' }}>
         <thead style={{ display: 'table-header-group' }}>
-          <tr className="bg-slate-100/50" style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
-            <th className="border border-black px-2 py-1.5 text-center font-bold uppercase text-[11px]" style={{ width: '32%' }}>
+          <tr className="bg-slate-50" style={{ pageBreakInside: 'avoid', breakInside: 'avoid', height: '32px' }}>
+            <th className="border border-black px-2 py-1 text-center font-bold" style={{ width: '28.2%' }}>
               Aluno
             </th>
-            <th className="border border-black px-2 py-1.5 text-center font-bold uppercase text-[11px]" style={{ width: '32%' }}>
+            <th className="border border-black px-2 py-1 text-center font-bold" style={{ width: '28.2%' }}>
               Matéria
             </th>
-            <th className="border border-black px-2 py-1.5 text-center font-bold uppercase text-[11px]" style={{ width: '14%' }}>
+            <th className="border border-black px-1.5 py-1 text-center font-bold" style={{ width: '11.3%' }}>
               Educador
             </th>
-            <th className="border border-black px-2 py-1.5 text-center font-bold uppercase text-[11px]" style={{ width: '9%' }}>
+            <th className="border border-black px-1 py-1 text-center font-bold" style={{ width: '9.9%' }}>
               Data
             </th>
-            <th className="border border-black px-2 py-1.5 text-center font-bold uppercase text-[11px]" style={{ width: '13%' }}>
+            <th className="border border-black px-1.5 py-1 text-center font-bold" style={{ width: '14.8%' }}>
               Entrega
             </th>
-            <th className="border border-black px-2 py-1.5 text-center font-bold uppercase text-[11px]" style={{ width: '8%' }}>
+            <th className="border border-black px-1 py-1 text-center font-bold" style={{ width: '7.6%' }}>
               Liberação
             </th>
           </tr>
@@ -64,23 +71,23 @@ export function PrintableOrderSheet({ order, items }: PrintableOrderSheetProps) 
             }
 
             return (
-              <tr key={item.id || idx} className="h-6">
-                <td className="border border-black px-2 py-1 text-left font-semibold text-[11px] truncate max-w-[200px]">
+              <tr key={item.id || idx} style={{ height: '26px' }}>
+                <td className="border border-black px-2 py-0.5 text-left font-semibold truncate max-w-[220px]">
                   {item.student_name}
                 </td>
-                <td className="border border-black px-2 py-1 text-left text-[11px] truncate max-w-[200px]">
+                <td className="border border-black px-2 py-0.5 text-left truncate max-w-[220px]">
                   {item.subject_name}
                 </td>
-                <td className="border border-black px-1.5 py-1 text-center text-[10px]">
+                <td className="border border-black px-1.5 py-0.5 text-center">
                   {item.educator_name || '—'}
                 </td>
-                <td className="border border-black px-1 py-1 text-center text-[10px]">
+                <td className="border border-black px-1 py-0.5 text-center">
                   {formattedDate}
                 </td>
-                <td className="border border-black px-1.5 py-1 text-center text-[10px]">
+                <td className="border border-black px-1.5 py-0.5 text-center">
                   {item.delivery_status || ''}
                 </td>
-                <td className="border border-black px-1 py-1 text-center text-[10px]">
+                <td className="border border-black px-1 py-0.5 text-center">
                   {item.release_status || ''}
                 </td>
               </tr>
@@ -88,14 +95,14 @@ export function PrintableOrderSheet({ order, items }: PrintableOrderSheetProps) 
           })}
 
           {/* Linhas adicionais em branco para anotações/assinaturas manuais */}
-          {Array.from({ length: extraBlankRowsCount }).map((_, idx) => (
-            <tr key={`blank-row-${idx}`} className="h-6">
-              <td className="border border-black px-2 py-1">&nbsp;</td>
-              <td className="border border-black px-2 py-1">&nbsp;</td>
-              <td className="border border-black px-1.5 py-1">&nbsp;</td>
-              <td className="border border-black px-1 py-1">&nbsp;</td>
-              <td className="border border-black px-1.5 py-1">&nbsp;</td>
-              <td className="border border-black px-1 py-1">&nbsp;</td>
+          {Array.from({ length: Math.max(extraBlankRowsCount, 13 - items.length) }).map((_, idx) => (
+            <tr key={`blank-row-${idx}`} style={{ height: '26px' }}>
+              <td className="border border-black px-2 py-0.5">&nbsp;</td>
+              <td className="border border-black px-2 py-0.5">&nbsp;</td>
+              <td className="border border-black px-1.5 py-0.5">&nbsp;</td>
+              <td className="border border-black px-1 py-0.5">&nbsp;</td>
+              <td className="border border-black px-1.5 py-0.5">&nbsp;</td>
+              <td className="border border-black px-1 py-0.5">&nbsp;</td>
             </tr>
           ))}
         </tbody>
