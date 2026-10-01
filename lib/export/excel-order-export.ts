@@ -65,44 +65,35 @@ export async function exportOrderToExcel(order: Order, items: OrderItem[]): Prom
   ws['F4'] = { t: 's', v: 'Entrega', s: headerStyle };
   ws['G4'] = { t: 's', v: 'Liberação', s: headerStyle };
 
-  // 3. Preenchimento dos itens a partir da linha 5
+  // 3. Preenchimento dos itens e cálculo rigoroso de 26 linhas por folha
+  const linesPerPage = 26;
+  const totalDataRows = Math.max(linesPerPage, Math.ceil(items.length / linesPerPage) * linesPerPage);
   const startRow = 5;
+
+  // Itens cadastrados: Aluno, Matéria e Educador preenchidos. Data, Entrega e Liberação VAZIOS para escrita à mão.
   items.forEach((item, idx) => {
     const rowNum = startRow + idx;
-    let formattedDate = '';
-    if (item.delivery_date) {
-      const parts = item.delivery_date.split('-');
-      if (parts.length === 3) {
-        formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
-      } else {
-        formattedDate = item.delivery_date;
-      }
-    }
-
     ws[`B${rowNum}`] = { t: 's', v: item.student_name || '', s: dataStyleLeft };
     ws[`C${rowNum}`] = { t: 's', v: item.subject_name || '', s: dataStyleLeft };
     ws[`D${rowNum}`] = { t: 's', v: item.educator_name || '', s: dataStyleCenter };
-    ws[`E${rowNum}`] = { t: 's', v: formattedDate, s: dataStyleCenter };
-    ws[`F${rowNum}`] = { t: 's', v: item.delivery_status || '', s: dataStyleCenter };
-    ws[`G${rowNum}`] = { t: 's', v: item.release_status || '', s: dataStyleCenter };
+    ws[`E${rowNum}`] = { t: 's', v: '', s: dataStyleCenter }; // Vazio com borda para preenchimento manual
+    ws[`F${rowNum}`] = { t: 's', v: '', s: dataStyleCenter }; // Vazio com borda para preenchimento manual
+    ws[`G${rowNum}`] = { t: 's', v: '', s: dataStyleCenter }; // Vazio com borda para preenchimento manual
   });
 
-  // 4. Adiciona linhas extras em branco com bordas para assinaturas manuais
-  const extraBlankRows = 15;
-  const startBlankRow = startRow + items.length;
-  const totalRows = Math.max(17, startBlankRow + extraBlankRows - 1);
-
-  for (let r = startBlankRow; r <= totalRows; r++) {
-    ws[`B${r}`] = { t: 's', v: '', s: dataStyleLeft };
-    ws[`C${r}`] = { t: 's', v: '', s: dataStyleLeft };
-    ws[`D${r}`] = { t: 's', v: '', s: dataStyleCenter };
-    ws[`E${r}`] = { t: 's', v: '', s: dataStyleCenter };
-    ws[`F${r}`] = { t: 's', v: '', s: dataStyleCenter };
-    ws[`G${r}`] = { t: 's', v: '', s: dataStyleCenter };
+  // Linhas extras em branco para completar exatamente 26 linhas por folha
+  for (let rowNum = startRow + items.length; rowNum < startRow + totalDataRows; rowNum++) {
+    ws[`B${rowNum}`] = { t: 's', v: '', s: dataStyleLeft };
+    ws[`C${rowNum}`] = { t: 's', v: '', s: dataStyleLeft };
+    ws[`D${rowNum}`] = { t: 's', v: '', s: dataStyleCenter };
+    ws[`E${rowNum}`] = { t: 's', v: '', s: dataStyleCenter };
+    ws[`F${rowNum}`] = { t: 's', v: '', s: dataStyleCenter };
+    ws[`G${rowNum}`] = { t: 's', v: '', s: dataStyleCenter };
   }
 
-  // 5. Configurações estruturais idênticas ao Modelo_Impressao.xlsx
-  ws['!ref'] = `B2:G${totalRows}`;
+  // 4. Configurações estruturais idênticas ao Modelo_Impressao.xlsx
+  const finalRow = startRow + totalDataRows - 1;
+  ws['!ref'] = `B2:G${finalRow}`;
   ws['!merges'] = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 6 } }];
 
   // Larguras exatas das colunas do modelo

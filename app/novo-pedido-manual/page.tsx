@@ -429,6 +429,17 @@ function NovoPedidoManualContent() {
     });
   };
 
+  // Seleciona educador do cabeçalho da lista e replica para as linhas
+  const handleSelectHeaderEducator = (name: string) => {
+    const clean = toFirstName(name);
+    setSelectedEducator(clean);
+    setIsEducatorDropdownOpen(false);
+    // Se a coluna de educador por linha não estiver ativada, replica para todas as linhas
+    if (!showEducatorColumn) {
+      setRows((prev) => prev.map((r) => ({ ...r, educatorName: clean })));
+    }
+  };
+
   // Adiciona linha
   const handleAddRow = () => {
     setRows((prev) => [...prev, DEFAULT_ROW()]);
@@ -692,7 +703,9 @@ function NovoPedidoManualContent() {
           );
 
           const cleanSubj = cleanSubject(row.subjectName);
-          const rowEducator = toFirstName(row.educatorName?.trim() || selectedEducator.trim() || '');
+          const rowEducator = showEducatorColumn && row.educatorName?.trim()
+            ? toFirstName(row.educatorName.trim())
+            : toFirstName(selectedEducator.trim());
 
           return {
             order_id: editingOrderId,
@@ -792,7 +805,9 @@ function NovoPedidoManualContent() {
           );
 
           const cleanSubj = cleanSubject(row.subjectName);
-          const rowEducator = toFirstName(row.educatorName?.trim() || selectedEducator.trim() || '');
+          const rowEducator = showEducatorColumn && row.educatorName?.trim()
+            ? toFirstName(row.educatorName.trim())
+            : toFirstName(selectedEducator.trim());
 
           return {
             order_id: newOrder.id,
@@ -1101,21 +1116,34 @@ function NovoPedidoManualContent() {
                   )}
 
                   <div className="max-h-56 overflow-y-auto divide-y divide-slate-50">
+                    {/* Opção para desmarcar / sem educador */}
+                    <button
+                      type="button"
+                      onClick={() => handleSelectHeaderEducator('')}
+                      className={`w-full flex items-center justify-between px-3.5 py-2 text-xs text-left transition-colors italic ${
+                        !selectedEducator
+                          ? 'bg-blue-50 text-[#0f3b7d] font-bold'
+                          : 'text-slate-400 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span>(Nenhum educador selecionado)</span>
+                      {!selectedEducator && (
+                        <Check className="w-3.5 h-3.5 text-[#0f3b7d] shrink-0" />
+                      )}
+                    </button>
+
                     {filteredEducators.length === 0 ? (
                       <div className="px-4 py-3 text-slate-400 text-xs italic text-center">
                         Nenhum educador encontrado
                       </div>
                     ) : (
                       filteredEducators.map((ed) => {
-                        const isSelected = selectedEducator === ed.name;
+                        const isSelected = selectedEducator === toFirstName(ed.name);
                         return (
                           <button
                             key={ed.id}
                             type="button"
-                            onClick={() => {
-                              setSelectedEducator(toFirstName(ed.name));
-                              setIsEducatorDropdownOpen(false);
-                            }}
+                            onClick={() => handleSelectHeaderEducator(ed.name)}
                             className={`w-full flex items-center justify-between px-3.5 py-2 text-xs text-left transition-colors ${
                               isSelected
                                 ? 'bg-blue-50 text-[#0f3b7d] font-bold'
