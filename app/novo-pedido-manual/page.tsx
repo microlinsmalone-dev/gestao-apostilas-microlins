@@ -96,6 +96,8 @@ function NovoPedidoManualContent() {
 
   // Loading & Salvamento
   const [isSaving, setIsSaving] = useState(false);
+  const isCancellingRef = useRef(false);
+  const isSavingRef = useRef(false);
 
   // Referência para focar no novo input criado
   const lastRowInputRef = useRef<HTMLInputElement | null>(null);
@@ -236,26 +238,27 @@ function NovoPedidoManualContent() {
     loadInitialData();
   }, []);
 
-  // Carrega pedido para edição quando o parâmetro edit= está presente
+  // Carrega pedido para edição quando o parâmetro edit= está presente ou limpa estado se ausente
   useEffect(() => {
     if (editOrderId) {
+      isCancellingRef.current = false;
       loadOrderForEdit(editOrderId);
     } else {
+      isCancellingRef.current = false;
       setIsEditMode(false);
       setEditingOrderId(null);
-    }
-  }, [editOrderId]);
 
-  // Carrega rascunho de pedido manual do localStorage (caso tenha navegado ou vindo de importação)
-  useEffect(() => {
-    if (!editOrderId) {
+      // Carrega rascunho de pedido manual (apenas se for novo pedido legítimo)
       try {
         const saved = localStorage.getItem('microlins_draft_pedido_manual');
         if (saved) {
           const draft = JSON.parse(saved);
-          // Se o rascunho salvo pertencia ao modo de edição de um pedido anterior, descarta-o
+          // Se o rascunho pertencia ao modo de edição de um pedido anterior, descarta-o
           if (draft.isEditMode || draft.editingOrderId) {
             localStorage.removeItem('microlins_draft_pedido_manual');
+            setRows([DEFAULT_ROW(), DEFAULT_ROW(), DEFAULT_ROW(), DEFAULT_ROW(), DEFAULT_ROW()]);
+            setTitle('ENTREGA DE MATERIAL - HISTÓRICO');
+            setSelectedEducator('');
             return;
           }
           if (draft.rows && draft.rows.length > 0) {
@@ -273,17 +276,56 @@ function NovoPedidoManualContent() {
               setImportedFileName(draft.importedFileName || '');
             }
             setHasRestoredDraft(true);
+            return;
           }
         }
       } catch (e) {
         console.warn('Erro ao restaurar rascunho de pedido manual:', e);
       }
+
+      // Se não havia rascunho, garante formulário limpo
+      setTitle('ENTREGA DE MATERIAL - HISTÓRICO');
+      setSelectedEducator('');
+      setShowEducatorColumn(false);
+      setHasRestoredDraft(false);
+      setRows([
+        DEFAULT_ROW(),
+        DEFAULT_ROW(),
+        DEFAULT_ROW(),
+        DEFAULT_ROW(),
+        DEFAULT_ROW(),
+      ]);
     }
   }, [editOrderId]);
 
   // Persiste rascunho no localStorage para evitar perda de dados ao navegar entre telas
   useEffect(() => {
-    if (isLoadingEdit) return;
+    if (isLoadingEdit || isCancellingRef.current || isSavingRef.current) return;
+
+    // Se estiver em modo de edição, grava exclusivamente na chave isolada do pedido em edição
+    if (isEditMode || editingOrderId) {
+      if (!editingOrderId) return;
+      const hasFilled = rows.some((r) => r.studentName.trim() || r.subjectName.trim() || r.educatorName?.trim());
+      if (hasFilled) {
+        try {
+          const draft = {
+            title,
+            competenceMonth,
+            competenceYear,
+            selectedEducator,
+            rows,
+            isEditMode: true,
+            editingOrderId,
+          };
+          localStorage.setItem(`microlins_draft_edit_${editingOrderId}`, JSON.stringify(draft));
+        } catch (e) {
+          console.warn('Falha ao salvar rascunho de edição:', e);
+        }
+      }
+      return;
+    }
+
+    // Apenas novos pedidos manuais são salvos na chave geral microlins_draft_pedido_manual
     const hasFilled = rows.some((r) => r.studentName.trim() || r.subjectName.trim() || r.educatorName?.trim());
     if (hasFilled) {
       try {
@@ -293,17 +335,12 @@ function NovoPedidoManualContent() {
           competenceYear,
           selectedEducator,
           rows,
-          isEditMode,
-          editingOrderId,
+          isEditMode: false,
+          editingOrderId: null,
           source: isFromImport ? 'imported_from_nova_ordem' : 'manual_entry',
           importedFileName,
         };
-        // Se estiver em modo de edição de pedido existente, grava com chave específica para não contaminar novo pedido
-        if (isEditMode && editingOrderId) {
-          localStorage.setItem(`microlins_draft_edit_${editingOrderId}`, JSON.stringify(draft));
-        } else {
-          localStorage.setItem('microlins_draft_pedido_manual', JSON.stringify(draft));
-        }
+        localStorage.setItem('microlins_draft_pedido_manual', JSON.stringify(draft));
       } catch (e) {
         console.warn('Falha ao salvar rascunho manual:', e);
       }
@@ -323,6 +360,7 @@ function NovoPedidoManualContent() {
 
   // Cancela a edição do pedido existente e retorna ao Histórico
   const handleCancelEdit = () => {
+    isCancellingRef.current = true;
     try {
       localStorage.removeItem('microlins_draft_pedido_manual');
       if (editingOrderId) {
@@ -358,6 +396,7 @@ function NovoPedidoManualContent() {
       cancelText: 'Cancelar',
       type: 'warning',
       onConfirm: () => {
+        isCancellingRef.current = true;
         try {
           localStorage.removeItem('microlins_draft_pedido_manual');
           if (editingOrderId) {
@@ -591,6 +630,7 @@ function NovoPedidoManualContent() {
 
     try {
       setIsSaving(true);
+      isSavingRef.current = true;
       const unitId = process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
       const competenceDateStr = `${competenceYear}-${String(competenceMonth).padStart(2, '0')}-01`;
 
@@ -613,12 +653,17 @@ function NovoPedidoManualContent() {
           .select('id')
           .single();
 
-        if (orderErr || !updatedOrder) {
+        if (orderErr || !updatedOrder?.id) {
           showAlert(
             'O pedido que você está tentando editar não foi encontrado no banco de dados (pode ter sido excluído no Histórico).',
             'error',
             'Pedido Não Encontrado'
           );
+          try {
+            if (editingOrderId) {
+              localStorage.removeItem(`microlins_draft_edit_${editingOrderId}`);
+            }
+          } catch {}
           return;
         }
 
@@ -684,7 +729,8 @@ function NovoPedidoManualContent() {
           historicalMap.set(fp, list);
         });
 
-        // Limpa rascunhos salvos
+        // Limpa rascunhos salvos e bloqueia auto-save ao sair
+        isCancellingRef.current = true;
         try {
           localStorage.removeItem('microlins_draft_pedido_manual');
           if (editingOrderId) {
@@ -728,7 +774,9 @@ function NovoPedidoManualContent() {
           .select()
           .single();
 
-        if (orderErr) throw orderErr;
+        if (orderErr || !newOrder?.id) {
+          throw orderErr || new Error('Falha ao registrar novo pedido no banco de dados.');
+        }
 
         // 3. Grava os Itens do Pedido com o Educador da linha/lista e Liberação automática
         const itemsToInsert = validRows.map((row, idx) => {
@@ -770,6 +818,7 @@ function NovoPedidoManualContent() {
         if (itemsErr) throw itemsErr;
 
         // Limpa rascunhos salvos
+        isCancellingRef.current = true;
         try {
           localStorage.removeItem('microlins_draft_pedido_manual');
           if (isFromImport) {
@@ -782,6 +831,7 @@ function NovoPedidoManualContent() {
         if (redirectAfterSave) {
           router.push('/historico');
         } else {
+          isCancellingRef.current = false;
           // Prepara tela para digitar a próxima lista impressa
           setSelectedEducator(''); // Limpa o educador para a próxima lista
           setRows([
@@ -821,6 +871,7 @@ function NovoPedidoManualContent() {
       );
     } finally {
       setIsSaving(false);
+      isSavingRef.current = false;
     }
   };
 
