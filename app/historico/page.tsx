@@ -25,6 +25,8 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../../lib/supabase/client';
 import { Order, OrderItem } from '../../types';
 import { useDialog } from '../../components/ui/dialog';
+import { exportOrderToExcel } from '../../lib/export/excel-order-export';
+import { PrintableOrderSheet } from '../../components/orders/printable-order-sheet';
 
 type SortField = 'title' | 'competence' | 'total_items' | 'status' | 'educator';
 type SortDirection = 'asc' | 'desc';
@@ -175,49 +177,16 @@ function HistoricoContent() {
     });
   };
 
-  // Exportação direta para Excel (.xlsx) usando SheetJS
-  const handleExportExcel = (order: Order, itemsToExport: OrderItem[]) => {
-    const data = itemsToExport.map((item) => {
-      let formattedDate = '';
-      if (item.delivery_date) {
-        const parts = item.delivery_date.split('-');
-        if (parts.length === 3) {
-          formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
-        } else {
-          formattedDate = item.delivery_date;
-        }
-      }
-
-      return {
-        Aluno: item.student_name,
-        Matéria: item.subject_name,
-        Educador: item.educator_name || '',
-        Data: formattedDate,
-        Entrega: item.delivery_status || 'Entregue',
-        Liberação: item.release_status || 'Liberado',
-        'Aula Atual': item.current_lesson,
-      };
-    });
-
-    // Adiciona 15 linhas extras em branco para assinaturas manuais
-    for (let i = 0; i < 15; i++) {
-      data.push({
-        Aluno: '',
-        Matéria: '',
-        Educador: '',
-        Data: '',
-        Entrega: '',
-        Liberação: '',
-        'Aula Atual': 0,
-      });
+  // Exportação oficial para Excel (.xlsx) baseado no Modelo_Impressao.xlsx
+  const handleExportExcel = async (order: Order, itemsToExport: OrderItem[]) => {
+    try {
+      showToast('Gerando planilha no modelo oficial...', 'info');
+      await exportOrderToExcel(order, itemsToExport);
+      showToast('Planilha exportada com sucesso!', 'success');
+    } catch (err: any) {
+      console.error('Erro ao exportar Excel:', err);
+      showAlert(`Falha ao exportar planilha: ${err.message}`, 'error');
     }
-
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Pedido');
-
-    const fileName = `${order.title.replace(/[\\/*?:"<>|]/g, '_')}.xlsx`;
-    XLSX.writeFile(wb, fileName);
   };
 
   // Sorting handler
@@ -290,7 +259,8 @@ function HistoricoContent() {
   }, [orders, searchQuery, sortField, sortDirection]);
 
   return (
-    <div className="p-8 space-y-6 max-w-7xl mx-auto w-full">
+    <>
+      <div className="no-print p-8 space-y-6 max-w-7xl mx-auto w-full">
       {/* Cabeçalho */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
@@ -507,14 +477,10 @@ function HistoricoContent() {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider">
                   <tr>
-                    <th className="py-2.5 px-3 w-10 text-center">#</th>
-                    <th className="py-2.5 px-3 min-w-[200px]">Aluno</th>
-                    <th className="py-2.5 px-3 min-w-[180px]">Matéria</th>
-                    <th className="py-2.5 px-3 min-w-[150px]">Educador</th>
-                    <th className="py-2.5 px-3 min-w-[120px]">Data Entrega</th>
-                    <th className="py-2.5 px-3 min-w-[100px]">Entrega</th>
-                    <th className="py-2.5 px-3 min-w-[100px]">Liberação</th>
-                    <th className="py-2.5 px-3 text-center w-14">Aula</th>
+                    <th className="py-2.5 px-3 w-12 text-center">#</th>
+                    <th className="py-2.5 px-3 min-w-[240px]">Aluno</th>
+                    <th className="py-2.5 px-3 min-w-[220px]">Matéria</th>
+                    <th className="py-2.5 px-3 min-w-[180px]">Educador</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -524,30 +490,6 @@ function HistoricoContent() {
                       <td className="py-2.5 px-3 font-semibold text-slate-900">{item.student_name}</td>
                       <td className="py-2.5 px-3 text-slate-800">{item.subject_name}</td>
                       <td className="py-2.5 px-3 text-slate-600">{item.educator_name || '—'}</td>
-                      <td className="py-2.5 px-3 text-slate-600">
-                        {item.delivery_date
-                          ? item.delivery_date.split('-').reverse().join('/')
-                          : '—'}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                          item.delivery_status === 'Entregue' || item.delivery_status === 'Sim'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}>
-                          {item.delivery_status || 'Pendente'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                          item.release_status === 'Liberado' || item.release_status === 'Assinado' || item.release_status === 'Ok'
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}>
-                          {item.release_status || 'Pendente'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 text-center font-bold text-[#0f3b7d]">{item.current_lesson}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -556,7 +498,15 @@ function HistoricoContent() {
           )}
         </div>
       )}
-    </div>
+      </div>
+
+      {/* Folha Oficial de Impressão e PDF (Fiel ao Modelo_Impressao.xlsx) */}
+      {activeOrder && (
+        <div className="hidden print:block print-only w-full">
+          <PrintableOrderSheet order={activeOrder} items={activeItems} />
+        </div>
+      )}
+    </>
   );
 }
 

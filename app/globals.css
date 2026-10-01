@@ -16,8 +16,24 @@ body {
 }
 
 @media print {
+  @page {
+    size: A4 landscape;
+    margin: 6mm 8mm;
+  }
   body {
-    background: #ffffff;
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  main {
+    overflow: visible !important;
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   .no-print {
     display: none !important;

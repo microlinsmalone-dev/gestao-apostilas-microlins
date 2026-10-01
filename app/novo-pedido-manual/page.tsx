@@ -20,7 +20,8 @@ import {
   Check,
   Search,
   Loader2,
-  RotateCcw
+  RotateCcw,
+  Pencil
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
 import { cleanSubject, normalizeText, formatOrderTitle, toFirstName } from '../../lib/domain/sanitizer';
@@ -168,7 +169,10 @@ function NovoPedidoManualContent() {
         .single();
 
       if (orderErr || !order) {
-        showAlert('Pedido não encontrado para edição.', 'error', 'Erro');
+        showAlert('Pedido não encontrado para edição (pode ter sido excluído no Histórico).', 'error', 'Erro');
+        setIsEditMode(false);
+        setEditingOrderId(null);
+        router.push('/historico');
         return;
       }
 
@@ -236,6 +240,9 @@ function NovoPedidoManualContent() {
   useEffect(() => {
     if (editOrderId) {
       loadOrderForEdit(editOrderId);
+    } else {
+      setIsEditMode(false);
+      setEditingOrderId(null);
     }
   }, [editOrderId]);
 
@@ -246,6 +253,11 @@ function NovoPedidoManualContent() {
         const saved = localStorage.getItem('microlins_draft_pedido_manual');
         if (saved) {
           const draft = JSON.parse(saved);
+          // Se o rascunho salvo pertencia ao modo de edição de um pedido anterior, descarta-o
+          if (draft.isEditMode || draft.editingOrderId) {
+            localStorage.removeItem('microlins_draft_pedido_manual');
+            return;
+          }
           if (draft.rows && draft.rows.length > 0) {
             const sanitizedRows = draft.rows.map((r: any) => ({
               ...r,
@@ -256,8 +268,6 @@ function NovoPedidoManualContent() {
             if (draft.competenceMonth) setCompetenceMonth(draft.competenceMonth);
             if (draft.competenceYear) setCompetenceYear(draft.competenceYear);
             if (draft.selectedEducator) setSelectedEducator(toFirstName(draft.selectedEducator));
-            if (draft.editingOrderId) setEditingOrderId(draft.editingOrderId);
-            if (draft.isEditMode !== undefined) setIsEditMode(draft.isEditMode);
             if (draft.source === 'imported_from_nova_ordem') {
               setIsFromImport(true);
               setImportedFileName(draft.importedFileName || '');
@@ -288,7 +298,12 @@ function NovoPedidoManualContent() {
           source: isFromImport ? 'imported_from_nova_ordem' : 'manual_entry',
           importedFileName,
         };
-        localStorage.setItem('microlins_draft_pedido_manual', JSON.stringify(draft));
+        // Se estiver em modo de edição de pedido existente, grava com chave específica para não contaminar novo pedido
+        if (isEditMode && editingOrderId) {
+          localStorage.setItem(`microlins_draft_edit_${editingOrderId}`, JSON.stringify(draft));
+        } else {
+          localStorage.setItem('microlins_draft_pedido_manual', JSON.stringify(draft));
+        }
       } catch (e) {
         console.warn('Falha ao salvar rascunho manual:', e);
       }
@@ -306,6 +321,34 @@ function NovoPedidoManualContent() {
     isLoadingEdit,
   ]);
 
+  // Cancela a edição do pedido existente e retorna ao Histórico
+  const handleCancelEdit = () => {
+    try {
+      localStorage.removeItem('microlins_draft_pedido_manual');
+      if (editingOrderId) {
+        localStorage.removeItem(`microlins_draft_edit_${editingOrderId}`);
+      }
+      if (isFromImport) {
+        localStorage.removeItem('microlins_draft_nova_ordem');
+      }
+    } catch {}
+    setIsEditMode(false);
+    setEditingOrderId(null);
+    setTitle('ENTREGA DE MATERIAL - HISTÓRICO');
+    setSelectedEducator('');
+    setShowEducatorColumn(false);
+    setHasRestoredDraft(false);
+    setRows([
+      DEFAULT_ROW(),
+      DEFAULT_ROW(),
+      DEFAULT_ROW(),
+      DEFAULT_ROW(),
+      DEFAULT_ROW(),
+    ]);
+    showToast('Edição cancelada.', 'info');
+    router.push('/historico');
+  };
+
   // Descarta o rascunho atual e reinicia o formulário
   const handleClearManualDraft = () => {
     showConfirm({
@@ -317,6 +360,9 @@ function NovoPedidoManualContent() {
       onConfirm: () => {
         try {
           localStorage.removeItem('microlins_draft_pedido_manual');
+          if (editingOrderId) {
+            localStorage.removeItem(`microlins_draft_edit_${editingOrderId}`);
+          }
           if (isFromImport) {
             localStorage.removeItem('microlins_draft_nova_ordem');
           }
@@ -335,6 +381,9 @@ function NovoPedidoManualContent() {
             DEFAULT_ROW(),
             DEFAULT_ROW(),
           ]);
+          if (editOrderId) {
+            router.push('/novo-pedido-manual');
+          }
           showToast('Formulário limpo com sucesso.', 'info');
         } catch {}
       },
@@ -550,7 +599,7 @@ function NovoPedidoManualContent() {
         
         // 1. Atualiza o cabeçalho do pedido
         const cleanTitleStr = formatOrderTitle(title);
-        const { error: orderErr } = await supabase
+        const { data: updatedOrder, error: orderErr } = await supabase
           .from('orders')
           .update({
             title: cleanTitleStr,
@@ -560,9 +609,18 @@ function NovoPedidoManualContent() {
             total_items: validRows.length,
             updated_at: new Date().toISOString(),
           })
-          .eq('id', editingOrderId);
+          .eq('id', editingOrderId)
+          .select('id')
+          .single();
 
-        if (orderErr) throw orderErr;
+        if (orderErr || !updatedOrder) {
+          showAlert(
+            'O pedido que você está tentando editar não foi encontrado no banco de dados (pode ter sido excluído no Histórico).',
+            'error',
+            'Pedido Não Encontrado'
+          );
+          return;
+        }
 
         // 2. Remove todos os itens antigos do pedido
         const { error: deleteErr } = await supabase
@@ -629,6 +687,9 @@ function NovoPedidoManualContent() {
         // Limpa rascunhos salvos
         try {
           localStorage.removeItem('microlins_draft_pedido_manual');
+          if (editingOrderId) {
+            localStorage.removeItem(`microlins_draft_edit_${editingOrderId}`);
+          }
           if (isFromImport) {
             localStorage.removeItem('microlins_draft_nova_ordem');
           }
@@ -827,6 +888,34 @@ function NovoPedidoManualContent() {
           </button>
         </div>
       </div>
+
+      {/* Banner de Modo de Edição Ativo */}
+      {isEditMode && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-600 text-white rounded-lg shadow-sm">
+              <Pencil className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-amber-900 text-sm">
+                Editando Pedido Existente: {title}
+              </p>
+              <p className="text-amber-700">
+                Você está alterando as apostilas de um pedido já arquivado. As alterações atualizarão este mesmo pedido no banco de dados.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className="px-3.5 py-1.5 rounded-lg border border-amber-300 bg-white text-amber-900 font-bold hover:bg-amber-100 transition-colors shadow-sm"
+            >
+              Cancelar Edição
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Banner de Rascunho Importado de Nova Ordem */}
       {isFromImport && (
@@ -1240,15 +1329,17 @@ function NovoPedidoManualContent() {
             {isEditMode ? (
               /* Botões de edição */
               <>
-                <Link
-                  href="/historico"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50"
-                >
-                  <span>Cancelar</span>
-                </Link>
                 <button
                   type="button"
-                  disabled={!canSave}
+                  onClick={handleCancelEdit}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Cancelar Edição</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={!canSave || isSaving}
                   onClick={() => handleSaveOrder(true)}
                   className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-[#0f3b7d] text-white font-bold text-xs hover:bg-[#0a2e68] shadow-md transition-all disabled:opacity-50"
                 >
