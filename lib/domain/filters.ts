@@ -70,8 +70,21 @@ export function isEducatorIgnored(studentName: string, ignoredEducators?: string
   for (const educator of ignoredEducators) {
     const educNorm = normalizeText(educator);
     if (!educNorm) continue;
-    if (studentNorm === educNorm || studentNorm.includes(educNorm) || educNorm.includes(studentNorm)) {
+
+    // 1. Correspondência exata completa (ex: aluno "Malone de Souza" === educador "Malone de Souza")
+    if (studentNorm === educNorm) {
       return true;
+    }
+
+    // 2. Se o educador cadastrado tiver 2 ou mais palavras (ex: "Malone de Souza", "Antonio Fagner dos Santos Silva"),
+    // permite match composto bidirecional.
+    // NUNCA faz match de substring se for apenas um único primeiro nome (ex: "Antonio"),
+    // para evitar excluir indevidamente alunos reais com nome composto como "Miguel Antônio Guerra".
+    const educWords = educNorm.split(' ').filter(Boolean);
+    if (educWords.length >= 2) {
+      if (studentNorm.includes(educNorm) || educNorm.includes(studentNorm)) {
+        return true;
+      }
     }
   }
 

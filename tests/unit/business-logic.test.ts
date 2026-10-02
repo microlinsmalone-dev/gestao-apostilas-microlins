@@ -50,6 +50,9 @@ describe('2. Filtros de Negócio e Exclusões', () => {
     expect(isEducatorIgnored('malone', educators)).toBe(true);
     expect(isEducatorIgnored('Pyetra Alves', educators)).toBe(true);
     expect(isEducatorIgnored('João Silva', educators)).toBe(false);
+    expect(isEducatorIgnored('MIGUEL ANTÔNIO GUERRA', educators)).toBe(false);
+    expect(isEducatorIgnored('MIGUEL ANTÔNIO GUERRA', ['Antonio'])).toBe(false);
+    expect(isEducatorIgnored('ELOIZA ANTÔNIO PIANTA DE OLIVEIRA', ['Antonio'])).toBe(false);
   });
 
   it('deve identificar matérias de Digitação para exclusão', () => {
