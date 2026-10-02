@@ -35,6 +35,7 @@ export interface RawImportRow {
   nextSubject?: string;
   phone?: string;
   contractNumber?: string;
+  codigoApostila?: string;
   sourceRowNumber: number;
   [key: string]: unknown;
 }
@@ -62,6 +63,8 @@ export interface ProcessedStudentItem {
   isInternalDuplicate: boolean;
   isHistoricalDuplicate: boolean;
   historicalMatchOrderTitle?: string;
+  codigoApostila?: string;
+  isOnlyCode?: boolean;
   excludedReason?: string;
   isExcluded: boolean;
   sourceRowNumber: number;

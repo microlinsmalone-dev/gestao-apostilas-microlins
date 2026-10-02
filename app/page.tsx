@@ -213,7 +213,7 @@ export default function DashboardPage() {
                 Histórico Consolidado
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Consulte pedidos passados, edite in-place ou exporte para PDF e Excel.
+                Consulte pedidos passados, edite in-place ou exporte para Excel.
               </p>
             </div>
             <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-emerald-700 transition-colors mt-1" />

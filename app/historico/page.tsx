@@ -8,7 +8,6 @@ import {
   History,
   Search,
   FileSpreadsheet,
-  Printer,
   RotateCcw,
   Trash2,
   Calendar,
@@ -26,7 +25,6 @@ import { supabase } from '../../lib/supabase/client';
 import { Order, OrderItem } from '../../types';
 import { useDialog } from '../../components/ui/dialog';
 import { exportOrderToExcel } from '../../lib/export/excel-order-export';
-import { PrintableOrderSheet } from '../../components/orders/printable-order-sheet';
 
 type SortField = 'title' | 'competence' | 'total_items' | 'status' | 'educator';
 type SortDirection = 'asc' | 'desc';
@@ -53,6 +51,21 @@ function HistoricoContent() {
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [activeItems, setActiveItems] = useState<OrderItem[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
+  const [detailTab, setDetailTab] = useState<'physical' | 'onlyCode'>('physical');
+
+  const physicalDetailItems = useMemo(() => {
+    return activeItems.filter(
+      (it) => it.delivery_status !== 'Apenas Código' && !it.release_status?.startsWith('Código:')
+    );
+  }, [activeItems]);
+
+  const onlyCodeDetailItems = useMemo(() => {
+    return activeItems.filter(
+      (it) => it.delivery_status === 'Apenas Código' || it.release_status?.startsWith('Código:')
+    );
+  }, [activeItems]);
+
+  const displayedDetailItems = detailTab === 'onlyCode' ? onlyCodeDetailItems : physicalDetailItems;
 
   // Carrega lista de pedidos com educador predominante
   const loadOrders = async () => {
@@ -442,15 +455,6 @@ function HistoricoContent() {
 
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                <Printer className="w-3.5 h-3.5 text-[#0f3b7d]" />
-                <span>Imprimir / PDF</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => handleEditInManualPage(activeOrder)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0f3b7d] text-white text-xs font-bold hover:bg-[#0a2e68] shadow-sm transition-colors"
                 title="Editar este pedido na tela de Pedido Manual"
@@ -469,6 +473,34 @@ function HistoricoContent() {
             </div>
           </div>
 
+          {/* Abas de Visualização (Físico vs Apenas Código) se houver itens de código */}
+          {onlyCodeDetailItems.length > 0 && (
+            <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+              <button
+                type="button"
+                onClick={() => setDetailTab('physical')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  detailTab === 'physical'
+                    ? 'bg-[#0f3b7d] text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Apostilas Físicas ({physicalDetailItems.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailTab('onlyCode')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                  detailTab === 'onlyCode'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                }`}
+              >
+                Apenas Código ({onlyCodeDetailItems.length})
+              </button>
+            </div>
+          )}
+
           {/* Tabela de Itens do Pedido Ativo (100% Somente Leitura) */}
           {isLoadingItems ? (
             <div className="p-8 text-center text-slate-400 text-xs">Carregando itens do pedido...</div>
@@ -481,17 +513,34 @@ function HistoricoContent() {
                     <th className="py-2.5 px-3 min-w-[240px]">Aluno</th>
                     <th className="py-2.5 px-3 min-w-[220px]">Matéria</th>
                     <th className="py-2.5 px-3 min-w-[180px]">Educador</th>
+                    {detailTab === 'onlyCode' && (
+                      <th className="py-2.5 px-3 min-w-[180px]">Código da Apostila</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {activeItems.map((item, idx) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50">
-                      <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-900">{item.student_name}</td>
-                      <td className="py-2.5 px-3 text-slate-800">{item.subject_name}</td>
-                      <td className="py-2.5 px-3 text-slate-600">{item.educator_name || '—'}</td>
-                    </tr>
-                  ))}
+                  {displayedDetailItems.map((item, idx) => {
+                    const code =
+                      item.release_status?.startsWith('Código:')
+                        ? item.release_status.replace('Código:', '').trim()
+                        : item.delivery_status === 'Apenas Código'
+                        ? item.release_status || 'Código Liberado'
+                        : '—';
+
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/50">
+                        <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                        <td className="py-2.5 px-3 font-semibold text-slate-900">{item.student_name}</td>
+                        <td className="py-2.5 px-3 text-slate-800">{item.subject_name}</td>
+                        <td className="py-2.5 px-3 text-slate-600">{item.educator_name || '—'}</td>
+                        {detailTab === 'onlyCode' && (
+                          <td className="py-2.5 px-3 font-mono text-amber-700 font-medium">
+                            {code}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -499,13 +548,6 @@ function HistoricoContent() {
         </div>
       )}
       </div>
-
-      {/* Folha Oficial de Impressão e PDF (Fiel ao Modelo_Impressao.xlsx) */}
-      {activeOrder && (
-        <div className="hidden print:block print-only w-full">
-          <PrintableOrderSheet order={activeOrder} items={activeItems} />
-        </div>
-      )}
     </>
   );
 }

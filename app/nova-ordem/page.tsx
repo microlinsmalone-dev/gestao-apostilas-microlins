@@ -49,6 +49,7 @@ import { formatOrderTitle, normalizeText, toFirstName } from '../../lib/domain/s
 import { ProcessedStudentItem, Educator } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 import { useDialog } from '../../components/ui/dialog';
+import { exportOrderToExcel } from '../../lib/export/excel-order-export';
 
 export default function NovaOrdemPage() {
   const router = useRouter();
@@ -135,6 +136,7 @@ export default function NovaOrdemPage() {
     'index' | 'studentName' | 'subjectName' | 'educatorName' | 'currentLesson' | 'classSchedule'
   >('index');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [activeCategoryTab, setActiveCategoryTab] = useState<'physical' | 'onlyCode'>('physical');
 
   // Loading States
   const [isProcessingFile, setIsProcessingFile] = useState(false);
@@ -656,17 +658,25 @@ export default function NovaOrdemPage() {
     setHistoricalDuplicatesCount(duplicateAnalysis.historicalDuplicatesCount);
   };
 
-  // Contagem de apostilas por educador
+  // Separação de itens em Apostilas Físicas vs Apenas Código
+  const physicalItems = useMemo(() => items.filter((it) => !it.isOnlyCode), [items]);
+  const onlyCodeItems = useMemo(() => items.filter((it) => it.isOnlyCode === true), [items]);
+
+  const currentCategoryItems = useMemo(() => {
+    return activeCategoryTab === 'onlyCode' ? onlyCodeItems : physicalItems;
+  }, [activeCategoryTab, onlyCodeItems, physicalItems]);
+
+  // Contagem de apostilas por educador considerando a categoria ativa
   const educatorCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    items.forEach((item) => {
+    currentCategoryItems.forEach((item) => {
       const ed = item.educatorName?.trim() || 'Sem Educador';
       counts[ed] = (counts[ed] || 0) + 1;
     });
     return counts;
-  }, [items]);
+  }, [currentCategoryItems]);
 
-  // Lista ordenada de educadores com alunos presentes
+  // Lista ordenada de educadores com alunos presentes na categoria ativa
   const distinctEducatorsWithCounts = useMemo(() => {
     return Object.entries(educatorCounts).sort((a, b) => {
       if (a[0] === 'Sem Educador') return 1;
@@ -689,7 +699,7 @@ export default function NovaOrdemPage() {
 
   // Itens visíveis filtrados e ordenados
   const visibleItems = useMemo(() => {
-    let list = items;
+    let list = currentCategoryItems;
 
     // Filtro por Educador (da aba ou rótulo de coluna)
     if (filterEducator !== 'all') {
@@ -708,7 +718,8 @@ export default function NovaOrdemPage() {
           i.studentNameNormalized.includes(q) ||
           i.subjectNameNormalized.includes(q) ||
           normalizeText(i.educatorName || '').includes(q) ||
-          normalizeText(i.rawSubjectName || '').includes(q)
+          normalizeText(i.rawSubjectName || '').includes(q) ||
+          normalizeText(i.codigoApostila || '').includes(q)
       );
     }
 
@@ -734,7 +745,7 @@ export default function NovaOrdemPage() {
       if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [items, filterEducator, searchQuery, sortField, sortDirection, selectedEducator]);
+  }, [currentCategoryItems, filterEducator, searchQuery, sortField, sortDirection, selectedEducator]);
 
   // Finalização do pedido: Salva apenas os itens do educador filtrado OU todos os itens
   const handleFinalizeOrder = async (onlyFilteredEducator = false) => {
@@ -802,6 +813,8 @@ export default function NovaOrdemPage() {
         class_schedule: item.classSchedule || null,
         next_subject: item.nextSubject || null,
         phone: item.phone || null,
+        delivery_status: item.isOnlyCode ? 'Apenas Código' : 'Pendente',
+        release_status: item.codigoApostila ? `Código: ${item.codigoApostila}` : (item.isOnlyCode ? 'Código Liberado' : 'Pendente'),
         duplicate_fingerprint: item.duplicateFingerprint,
         is_internal_duplicate: item.isInternalDuplicate,
         is_historical_duplicate: item.isHistoricalDuplicate,
@@ -842,6 +855,21 @@ export default function NovaOrdemPage() {
       );
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Exportação Excel direta da tela de curadoria com abas oficiais
+  const handleExportExcelPreview = async () => {
+    try {
+      const dummyOrder: any = {
+        title: title || 'ENTREGA DE MATERIAL - PEDIDO',
+        competence_month: new Date().getMonth() + 1,
+        competence_year: new Date().getFullYear(),
+      };
+      await exportOrderToExcel(dummyOrder, items);
+      showToast('Planilha Excel gerada com abas "Apostilas Físicas" e "Apenas Código"!', 'success');
+    } catch (err: any) {
+      showAlert(`Erro ao gerar Excel: ${err.message}`, 'error', 'Exportação Excel');
     }
   };
 
@@ -1448,6 +1476,69 @@ export default function NovaOrdemPage() {
             </div>
           </div>
 
+          {/* Seletor Principal de Categoria: Apostilas Físicas vs Apenas Código */}
+          <div className="bg-slate-100/90 p-1.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-200">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveCategoryTab('physical');
+                  setFilterEducator('all');
+                }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  activeCategoryTab === 'physical'
+                    ? 'bg-[#0f3b7d] text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Apostilas Físicas</span>
+                <span
+                  className={`text-[11px] px-2 py-0.5 rounded-full font-extrabold ${
+                    activeCategoryTab === 'physical'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {physicalItems.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveCategoryTab('onlyCode');
+                  setFilterEducator('all');
+                }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  activeCategoryTab === 'onlyCode'
+                    ? 'bg-amber-600 text-white shadow-sm'
+                    : 'text-amber-800 hover:text-amber-950 hover:bg-amber-100/60'
+                }`}
+              >
+                <Zap className="w-4 h-4" />
+                <span>Apenas Código</span>
+                <span
+                  className={`text-[11px] px-2 py-0.5 rounded-full font-extrabold ${
+                    activeCategoryTab === 'onlyCode'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-amber-200 text-amber-900'
+                  }`}
+                >
+                  {onlyCodeItems.length}
+                </span>
+              </button>
+            </div>
+
+            <div className="text-[11px] text-slate-500 px-2">
+              {activeCategoryTab === 'physical' ? (
+                <span>Alunos para impressão e pedido de material físico</span>
+              ) : (
+                <span className="text-amber-800 font-medium">Alunos com liberação do código da apostila no sistema e sem entrega física</span>
+              )}
+            </div>
+          </div>
+
           {/* Abas de Filtragem Rápida por Educador (Separação Rápida de Pedidos) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -1747,19 +1838,25 @@ export default function NovaOrdemPage() {
                     </div>
                   </th>
 
-                  <th
-                    className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
-                    onClick={() => handleSort('classSchedule')}
-                  >
-                    <div className="flex items-center gap-1">
-                      <span>Turma / Horário</span>
-                      {sortField === 'classSchedule' && (
-                        sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
-                      )}
-                    </div>
-                  </th>
+                  {activeCategoryTab === 'onlyCode' ? (
+                    <th className="py-2.5 px-3 min-w-[200px]">Código da Apostila</th>
+                  ) : (
+                    <>
+                      <th
+                        className="py-2.5 px-3 cursor-pointer hover:bg-slate-100 transition-colors"
+                        onClick={() => handleSort('classSchedule')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Turma / Horário</span>
+                          {sortField === 'classSchedule' && (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                          )}
+                        </div>
+                      </th>
 
-                  <th className="py-2.5 px-3">Próxima Matéria</th>
+                      <th className="py-2.5 px-3">Próxima Matéria</th>
+                    </>
+                  )}
                   <th className="py-2.5 px-3 text-center w-20">Avisos</th>
                   <th className="py-2.5 px-3 text-right w-16">Ação</th>
                 </tr>
@@ -1803,10 +1900,20 @@ export default function NovaOrdemPage() {
                       <td className="py-2.5 px-3 text-center font-bold text-[#0f3b7d]">
                         {item.currentLesson}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-600">
-                        {item.classSchedule || (item.scheduledDay ? `${item.scheduledDay}` : '—')}
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-500">{item.nextSubject || '—'}</td>
+                      {activeCategoryTab === 'onlyCode' ? (
+                        <td className="py-2.5 px-3">
+                          <span className="font-mono text-xs font-semibold px-2.5 py-1 rounded bg-amber-100 text-amber-900 border border-amber-300 shadow-xs inline-block">
+                            {item.codigoApostila || 'Código Liberado'}
+                          </span>
+                        </td>
+                      ) : (
+                        <>
+                          <td className="py-2.5 px-3 text-slate-600">
+                            {item.classSchedule || (item.scheduledDay ? `${item.scheduledDay}` : '—')}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-500">{item.nextSubject || '—'}</td>
+                        </>
+                      )}
                       <td className="py-2.5 px-3 text-center">
                         {item.isHistoricalDuplicate && (
                           <span
@@ -1881,6 +1988,17 @@ export default function NovaOrdemPage() {
               >
                 <PenLine className="w-4 h-4 text-[#0f3b7d]" />
                 <span>Editar Pedido</span>
+              </button>
+
+              {/* Botão para Exportar Excel com Abas Oficiais */}
+              <button
+                type="button"
+                onClick={handleExportExcelPreview}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-emerald-600 bg-white text-emerald-700 font-bold text-xs hover:bg-emerald-50 transition-all shadow-xs"
+                title="Exportar planilha Excel com abas Apostilas Físicas e Apenas Código"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>Exportar Excel (.xlsx)</span>
               </button>
 
               {/* Botão de Finalizar apenas o Educador Filtrado */}

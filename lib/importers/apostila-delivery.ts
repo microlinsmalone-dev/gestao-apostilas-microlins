@@ -50,6 +50,8 @@ export class ApostilaDeliveryImportAdapter implements ImportAdapter {
       const aulaNum = parseFloat(aulaStr) || 0;
       const educador = getVal('Responsável Entrega') || getVal('Responsavel Entrega') || '';
       const contrato = getVal('Contrato');
+      const rawCodigo = getVal('Código Apostila') || getVal('Codigo Apostila');
+      const codigoApostilaNorm = rawCodigo && normalizeText(rawCodigo) !== 'nan' ? rawCodigo.trim() : '';
 
       if (!aluno || !materiaBruta) return;
 
@@ -102,6 +104,11 @@ export class ApostilaDeliveryImportAdapter implements ImportAdapter {
       const subjectNormalized = normalizeText(materiaLimpa);
       const fingerprint = createDuplicateFingerprint(aluno, materiaLimpa);
 
+      // Classifica se o aluno possui apenas código liberado sem entrega física
+      const hasValidCode = codigoApostilaNorm.length > 0;
+      const entFisNorm = normalizeText(entregaFisica);
+      const isOnlyCode = hasValidCode && (entFisNorm === 'nao' || entFisNorm === 'n' || entFisNorm === '');
+
       eligibleItems.push({
         id: `temp_${index + 1}`,
         studentName: aluno,
@@ -113,6 +120,8 @@ export class ApostilaDeliveryImportAdapter implements ImportAdapter {
         educatorName: educador,
         contractNumber: contrato,
         currentLesson: aulaNum,
+        codigoApostila: codigoApostilaNorm || undefined,
+        isOnlyCode,
         duplicateFingerprint: fingerprint,
         isInternalDuplicate: false,
         isHistoricalDuplicate: false,
