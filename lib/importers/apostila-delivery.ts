@@ -48,7 +48,9 @@ export class ApostilaDeliveryImportAdapter implements ImportAdapter {
       const tipoContrato = getVal('Tipo Contrato');
       const aulaStr = getVal('Aula Atual');
       const aulaNum = parseFloat(aulaStr) || 0;
-      const educador = getVal('Responsável Entrega') || getVal('Responsavel Entrega') || '';
+      // O educador não deve ser obtido de 'Responsável Entrega' (quem liberou/entregou o material)
+      // O educador oficial é atribuído exclusivamente via cruzamento com a Análise Base de Contratos
+      const responsavelEntrega = getVal('Responsável Entrega') || getVal('Responsavel Entrega') || '';
       const contrato = getVal('Contrato');
       const rawCodigo = getVal('Código Apostila') || getVal('Codigo Apostila');
       const codigoApostilaNorm = rawCodigo && normalizeText(rawCodigo) !== 'nan' ? rawCodigo.trim() : '';
@@ -117,7 +119,7 @@ export class ApostilaDeliveryImportAdapter implements ImportAdapter {
         subjectNameNormalized: subjectNormalized,
         rawSubjectName: materiaBruta,
         courseName: formacao,
-        educatorName: educador,
+        educatorName: '', // Preenchido exclusivamente pela Análise Base de Contratos
         contractNumber: contrato,
         currentLesson: aulaNum,
         codigoApostila: codigoApostilaNorm || undefined,
