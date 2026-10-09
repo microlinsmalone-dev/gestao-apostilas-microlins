@@ -11,12 +11,14 @@ import {
   GraduationCap,
   Settings,
   ShieldCheck,
-  BookOpen
+  BookOpen,
+  CalendarClock
 } from 'lucide-react';
 
 const menuItems = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
   { label: 'Novo Pedido', href: '/nova-ordem', icon: FilePlus },
+  { label: 'Previsão de Apostilas', href: '/nova-ordem?tab=forecast', icon: CalendarClock },
   { label: 'Pedido Manual', href: '/novo-pedido-manual', icon: ClipboardList },
   { label: 'Histórico', href: '/historico', icon: History },
   { label: 'Educadores', href: '/configuracoes/educadores', icon: GraduationCap },

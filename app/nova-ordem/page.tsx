@@ -29,7 +29,8 @@ import {
   Zap,
   Ban,
   Calendar,
-  Clock
+  Clock,
+  CalendarClock
 } from 'lucide-react';
 import {
   parseSpreadsheetBuffer,
@@ -50,6 +51,7 @@ import { ProcessedStudentItem, Educator } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 import { useDialog } from '../../components/ui/dialog';
 import { exportOrderToExcel } from '../../lib/export/excel-order-export';
+import { ForecastTab } from '../../components/orders/forecast-tab';
 
 export default function NovaOrdemPage() {
   const router = useRouter();
@@ -136,7 +138,17 @@ export default function NovaOrdemPage() {
     'index' | 'studentName' | 'subjectName' | 'educatorName' | 'currentLesson' | 'classSchedule'
   >('index');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const [activeCategoryTab, setActiveCategoryTab] = useState<'physical' | 'onlyCode'>('physical');
+  const [activeCategoryTab, setActiveCategoryTab] = useState<'physical' | 'onlyCode' | 'forecast'>('physical');
+
+  // Suporte a abertura direta da aba via URL (?tab=forecast ou ?tab=previsao)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const search = window.location.search;
+      if (search.includes('tab=forecast') || search.includes('tab=previsao')) {
+        setActiveCategoryTab('forecast');
+      }
+    }
+  }, []);
 
   // Loading States
   const [isProcessingFile, setIsProcessingFile] = useState(false);
@@ -1528,19 +1540,48 @@ export default function NovaOrdemPage() {
                   {onlyCodeItems.length}
                 </span>
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveCategoryTab('forecast');
+                }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  activeCategoryTab === 'forecast'
+                    ? 'bg-purple-900 text-white shadow-sm'
+                    : 'text-purple-900 hover:text-purple-950 hover:bg-purple-100/60'
+                }`}
+              >
+                <CalendarClock className="w-4 h-4 text-purple-400" />
+                <span>Previsão de Apostilas</span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold uppercase ${
+                    activeCategoryTab === 'forecast'
+                      ? 'bg-purple-500 text-white'
+                      : 'bg-purple-200 text-purple-900'
+                  }`}
+                >
+                  Novo
+                </span>
+              </button>
             </div>
 
             <div className="text-[11px] text-slate-500 px-2">
               {activeCategoryTab === 'physical' ? (
                 <span>Alunos para impressão e pedido de material físico</span>
-              ) : (
+              ) : activeCategoryTab === 'onlyCode' ? (
                 <span className="text-amber-800 font-medium">Alunos com liberação do código da apostila no sistema e sem entrega física</span>
+              ) : (
+                <span className="text-purple-900 font-medium">Cronograma e estimativa de compras de apostilas até 4 meses</span>
               )}
             </div>
           </div>
 
-          {/* Abas de Filtragem Rápida por Educador (Separação Rápida de Pedidos) */}
-          <div className="space-y-2">
+          {activeCategoryTab === 'forecast' ? (
+            <ForecastTab currentOrderItems={items} rawRows={rawRows} />
+          ) : (
+            <>
+              {/* Abas de Filtragem Rápida por Educador (Separação Rápida de Pedidos) */}
+              <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-[#0f3b7d]" />
@@ -2038,6 +2079,8 @@ export default function NovaOrdemPage() {
               </button>
             </div>
           </div>
+            </>
+          )}
         </div>
       )}
     </div>

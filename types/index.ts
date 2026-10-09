@@ -113,3 +113,76 @@ export interface DashboardSummary {
   systemStatus: 'Livre' | 'Em Aberto' | 'Em Edição';
   recentOrders: Order[];
 }
+
+/**
+ * ==============================================================================
+ * TIPOS DA ABA: PREVISÃO DE APOSTILAS & CRONOGRAMA DE COMPRAS
+ * ==============================================================================
+ */
+
+/**
+ * Configuração de duração e status ativo de um Curso / Matéria
+ */
+export interface CourseDurationConfig {
+  id: string;
+  name: string;
+  totalLessons: number;
+  active: boolean;
+  isCustom?: boolean;
+}
+
+/**
+ * Configuração de frequência semanal do Aluno
+ */
+export interface StudentFrequencyConfig {
+  studentName: string;
+  lessonsPerWeek: number; // 1 a 4 (padrão 2)
+  isSpecial: boolean; // Aluno que faz > 2 aulas/semana
+}
+
+/**
+ * Item calculado da Previsão de Apostilas
+ */
+export interface ForecastStudentItem {
+  id: string;
+  studentName: string;
+  subjectName: string;
+  courseName?: string;
+  educatorName?: string;
+  currentLesson: number;
+  totalLessons: number;
+  remainingLessonsInSubject: number;
+  remainingSubjectsCount: number;
+  lessonsPerWeek: number;
+  isSpecial: boolean;
+  triggerLesson: number;
+  weeksUntilNextOrder: number;
+  estimatedMonthLabel: string;
+  estimatedMonthIndex: number; // 1 a 4 ou 0 para imediato
+  status: 'imediato' | 'projetado' | 'sem_demanda' | 'pendencia';
+  nextSubjectName?: string;
+  hasPhysicalDelivery?: boolean;
+}
+
+/**
+ * Resumo consolidado de apostilas previstas por mês
+ */
+export interface ForecastMonthlySummary {
+  monthIndex: number;
+  monthLabel: string;
+  totalWorkbooks: number;
+  subjectsBreakdown: { subject: string; count: number }[];
+}
+
+/**
+ * Registro de Pendência de Dados detectada
+ */
+export interface DataIssueItem {
+  id: string;
+  studentName: string;
+  subjectName: string;
+  issueType: 'missing_lesson' | 'missing_subject' | 'missing_duration' | 'divergence';
+  description: string;
+  solutionTip?: string;
+}
+
