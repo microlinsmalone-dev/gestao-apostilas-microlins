@@ -74,7 +74,7 @@ describe('Base de Contratos - Mapeamento e Cruzamento de Educadores', () => {
   });
 
   it('deve carregar com sucesso o arquivo real Análise Base de Contratos.xls se existir', () => {
-    const filePath = path.resolve(process.cwd(), 'Análise Base de Contratos.xls');
+    const filePath = path.resolve(process.cwd(), 'tests/fixtures/Analise_Base_Contratos.xls');
     if (fs.existsSync(filePath)) {
       const buffer = fs.readFileSync(filePath);
       const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
@@ -96,8 +96,8 @@ describe('Base de Contratos - Mapeamento e Cruzamento de Educadores', () => {
 
   it('deve filtrar Status Matéria Ativo e cruzar 100% dos alunos elegíveis no relatório real', async () => {
     const { parseSpreadsheetBuffer } = await import('../../lib/importers');
-    const baseFilePath = path.resolve(process.cwd(), 'Análise Base de Contratos.xls');
-    const delivFilePath = path.resolve(process.cwd(), 'SistemaAntigo/Modelo Real de Entrega de Apostila.xls');
+    const baseFilePath = path.resolve(process.cwd(), 'tests/fixtures/Analise_Base_Contratos.xls');
+    const delivFilePath = path.resolve(process.cwd(), 'tests/fixtures/Modelo Real de Entrega de Apostila.xls');
 
     if (fs.existsSync(baseFilePath) && fs.existsSync(delivFilePath)) {
       const baseBuffer = fs.readFileSync(baseFilePath);

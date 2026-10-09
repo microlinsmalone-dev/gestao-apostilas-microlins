@@ -1,0 +1,14 @@
+Em Cadastro de cursos: deixar a opção de uma lixeira também para poder apagar o curso/matéria que eu não quiser que fique. E o botão editar acaba que ficando inútil porque o total de aulas dá para definir na caixinha da coluna TOTAL DE AULAS. E o nome poderia ser possível só clicando no nome da matéria em CURSO/MATÉRIA. E aí remover o botão editar.
+
+E aí cruzar as informações de 04 Materiais com 06 Alunos, porque se eu apaguei o curso ou desativei, ele não precisa aparecer lá em 06 Alunos.
+
+Alunos Especiais acaba tendo sua função tomada la em 06 Alunos onde dá para definir quantas aulas cada aluno faz por semana, então remover.
+
+Pendência de Dados -> Deixar um filtro nas colunas Aluno Matéria Pendência.
+
+Aula de solicitação do material -> Pedir material a partir da aula:
+
+Data final da previsão -> Está realmente sendo efetivo no sistema?
+
+Importar configurações do pendrive -> Não precisa mais disso se tem o banco de dados
+

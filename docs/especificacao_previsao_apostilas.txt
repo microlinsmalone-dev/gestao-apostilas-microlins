@@ -1,0 +1,29 @@
+Preciso saber quantos materiais serão comprados até o final do ano, até o dia 21 de dezembro.
+
+Eu consigo olhar o relatório de Entrega de Apostilas para verificar quais alunos estão em qual matéria, em qual aula, se tem apostila ou não dessa matéria entre outras informações.
+
+No Controle Pedagógico, eu consigo encontrar quantas matérias restam para o aluno finalizar o curso, seguindo a seguinte lógica: Se o aluno está com 2 matérias restantes, isso significa que o aluno possui UMA matéria em andamento e outras DUAS para iniciar/finalizar.
+
+Considerando que pedimos materiais para os alunos a partir da aula 4 (entre 4 e 6 - aula 6 trava e o aluno não consegue continuar com as aulas), será necessários saber QUANTOS PEDIDOS serão feitos em cada mês subsequente: Setembro até 21 Dezembro. Vai ser feito uma estimativa, respeitando o critério de realização de aulas da seguinte maneira: O aluno, normalmente, faz 2 aulas por semana. Então se o mês tem 5 semanas, ele virá 5 vezes nesse mês, podendo realizar ATÉ duas aulas por vez que vier.
+
+Há alunos que fazem mais de 2 aulas por semana, podendo este fazer até 4 aulas por semana. Esses alunos são casos especiais, alunos que pagaram o curso à vista, passou várias parcelas no cartão de crédito ou pagam um valor consideravelmente maior. Mas esses casos serão expressos para que sejam listados nesse relatório, pois eles não podem ser tratados como alunos que realizam apenas duas aulas no mês.
+
+
+Lá no Controle Pedagógico, existe uma coluna chamada Aulas que exibe a quantidade de aulas que determinada matéria possui. E também existe a coluna Aulas Realizadas que diz quantas aulas aquele aluno já realizou naquela matéria.
+
+Considere todos os cursos/matérias com duração de até 16 aulas. Há exceções:
+Robótica 1: 24 aulas
+Robótica 2: 24 aulas
+Desenvolvimento de Games 2D: 24 aulas
+Desenvolvimento de Games 3D - Módulo I: 24 aulas
+Desenvolvimento de Games 3D - Módulo II: 16 aulas
+Lógica de Programação: 12 aulas
+Google Adwords: 8 aulas
+Redes - Cabeamento e Infraestrutura: 13 aulas
+Redes - Lógica e Estruturação: 12 aulas
+Redes - Tecnologia Wireless: 8 aulas
+
+Ignorar apostilas do inglês, digitação e cursos que não tem a numeração antes do nome da matéria. Exemplo: 161870_Word 2021 -> Isso é matéria que pode validar. Agora se for Youtuber -> Esse não, porque são cursos descontinuados. Exceção: Inteligência Emocional, Marketing Pessoal, Comunicação e Oratória, Educação Financeira, Inovação e Criatividade, Negociação, Objeções e Influência e Produtividade e Gestão do Tempo.
+
+
+Se precisar de mais informações, dados, me pergunte.
