@@ -182,6 +182,47 @@ export function resolveCourseTotalLessons(
 }
 
 /**
+ * Tenta resolver a próxima matéria sequencial lógica no catálogo oficial de cursos.
+ * Ex: "Assistente Administrativo - Módulo I" -> "Assistente Administrativo - Módulo II"
+ * Ex: "Adobe Photoshop - Creative Cloud - Módulo I" -> "Adobe Photoshop - Creative Cloud - Módulo II"
+ * Ex: "Adobe Photoshop - Creative Cloud - Módulo II" -> "Adobe Photoshop - Creative Cloud - Módulo III"
+ * Ex: "Programação C# - Módulo I" -> "Programação C# - Módulo II"
+ */
+export function resolveNextSequentialSubject(
+  currentSubject: string,
+  catalog: CourseDurationConfig[] = CURSOS_OFICIAIS_SISTEMA_FICHAS
+): string | null {
+  if (!currentSubject) return null;
+  const current = currentSubject.trim();
+
+  // Módulo I -> Módulo II
+  if (/m[oó]dulo\s+i\b/i.test(current) && !/m[oó]dulo\s+ii\b/i.test(current) && !/m[oó]dulo\s+iii\b/i.test(current) && !/m[oó]dulo\s+iv\b/i.test(current)) {
+    const nextCandidate = current.replace(/m[oó]dulo\s+i\b/i, 'Módulo II');
+    const normCand = normalizeText(nextCandidate);
+    const found = catalog.find((c) => normalizeText(c.name) === normCand);
+    if (found) return found.name;
+  }
+
+  // Módulo II -> Módulo III
+  if (/m[oó]dulo\s+ii\b/i.test(current) && !/m[oó]dulo\s+iii\b/i.test(current)) {
+    const nextCandidate = current.replace(/m[oó]dulo\s+ii\b/i, 'Módulo III');
+    const normCand = normalizeText(nextCandidate);
+    const found = catalog.find((c) => normalizeText(c.name) === normCand);
+    if (found) return found.name;
+  }
+
+  // Módulo III -> Módulo IV
+  if (/m[oó]dulo\s+iii\b/i.test(current) && !/m[oó]dulo\s+iv\b/i.test(current)) {
+    const nextCandidate = current.replace(/m[oó]dulo\s+iii\b/i, 'Módulo IV');
+    const normCand = normalizeText(nextCandidate);
+    const found = catalog.find((c) => normalizeText(c.name) === normCand);
+    if (found) return found.name;
+  }
+
+  return null;
+}
+
+/**
  * Nomes dos meses futuros com rótulos relativos amigáveis
  */
 export function getUpcomingMonthLabels(
@@ -396,7 +437,7 @@ export function computeStudentsForecast(params: {
       targetMonthIndex: number,
       weeksWait: number,
       demandStatus: 'imediato' | 'projetado',
-      stage: 'atual' | 'proxima' | 'futura'
+      stage: 'atual' | 'proxima'
     ) => {
       if (targetMonthIndex < 1 || targetMonthIndex > horizonMonths) return;
 
@@ -470,24 +511,15 @@ export function computeStudentsForecast(params: {
           nextSubjName = nextVal.valid ? nextVal.cleanName : sanitizeRawSubject(nextSubjectRaw);
         }
         if (!nextSubjName || nextSubjName === cleanSubj) {
-          nextSubjName = `Próx. Matéria pós ${cleanSubj}`;
+          const sequential = resolveNextSequentialSubject(cleanSubj, coursesConfig);
+          if (sequential) {
+            nextSubjName = sequential;
+          } else {
+            nextSubjName = `Próx. Matéria pós ${cleanSubj}`;
+          }
         }
 
         scheduleDemand(nextSubjName, monthOfNext, weeksToTriggerNext, 'projetado', 'proxima');
-
-        // =========================================================================
-        // CICLO 3: APOSTILA FUTURA (Subsequente, se o aluno concluir 2 matérias no período)
-        // =========================================================================
-        if (remainingSubjectsCount > 1) {
-          const nextSubjectDuration = 16;
-          const weeksToFinishNext = weeksToTriggerNext + Math.ceil((nextSubjectDuration - triggerLesson) / lessonsPerWeek);
-          const weeksToTriggerFuture = weeksToFinishNext + Math.max(1, Math.ceil(triggerLesson / lessonsPerWeek));
-          const monthOfFuture = Math.ceil(weeksToTriggerFuture / 4);
-
-          if (monthOfFuture >= 1 && monthOfFuture <= horizonMonths) {
-            scheduleDemand(`Matéria Futura pós ${cleanSubj}`, monthOfFuture, weeksToTriggerFuture, 'projetado', 'futura');
-          }
-        }
       }
     }
   });

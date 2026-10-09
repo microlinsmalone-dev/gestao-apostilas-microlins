@@ -178,9 +178,7 @@ function buildDetailedStudentsWorksheet(forecastItems: ForecastStudentItem[]): a
     const stageLabel =
       item.stage === 'atual'
         ? 'Matéria Atual'
-        : item.stage === 'proxima'
-        ? 'Próxima Matéria'
-        : 'Matéria Futura';
+        : 'Próxima Matéria';
 
     ws[`B${currentRow}`] = { t: 's', v: item.studentName, s: dataStyleLeft };
     ws[`C${currentRow}`] = { t: 's', v: item.subjectName, s: dataStyleLeft };

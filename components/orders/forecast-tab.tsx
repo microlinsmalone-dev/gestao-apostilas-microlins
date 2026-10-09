@@ -1035,13 +1035,9 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
                                                   <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px]">
                                                     Matéria Atual
                                                   </span>
-                                                ) : student.stage === 'proxima' ? (
+                                                ) : (
                                                   <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold text-[10px]">
                                                     Próxima Matéria
-                                                  </span>
-                                                ) : (
-                                                  <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-800 font-bold text-[10px]">
-                                                    Matéria Futura
                                                   </span>
                                                 )}
                                               </td>
@@ -1120,13 +1116,9 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
                               <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px]">
                                 Matéria Atual
                               </span>
-                            ) : item.stage === 'proxima' ? (
+                            ) : (
                               <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold text-[10px]">
                                 Próxima Matéria
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-800 font-bold text-[10px]">
-                                Matéria Futura
                               </span>
                             )}
                           </td>

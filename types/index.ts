@@ -162,7 +162,7 @@ export interface ForecastStudentItem {
   status: 'imediato' | 'projetado' | 'sem_demanda' | 'pendencia';
   nextSubjectName?: string;
   hasPhysicalDelivery?: boolean;
-  stage?: 'atual' | 'proxima' | 'futura';
+  stage?: 'atual' | 'proxima';
 }
 
 /**
