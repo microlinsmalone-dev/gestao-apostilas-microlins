@@ -142,12 +142,18 @@ export default function NovaOrdemPage() {
 
   // Suporte a abertura direta da aba via URL (?tab=forecast ou ?tab=previsao)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const search = window.location.search;
-      if (search.includes('tab=forecast') || search.includes('tab=previsao')) {
-        setActiveCategoryTab('forecast');
+    function checkUrl() {
+      if (typeof window !== 'undefined') {
+        const search = window.location.search;
+        if (search.includes('tab=forecast') || search.includes('tab=previsao')) {
+          setStep(2);
+          setActiveCategoryTab('forecast');
+        }
       }
     }
+    checkUrl();
+    window.addEventListener('popstate', checkUrl);
+    return () => window.removeEventListener('popstate', checkUrl);
   }, []);
 
   // Loading States
