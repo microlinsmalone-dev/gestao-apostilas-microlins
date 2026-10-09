@@ -39,16 +39,16 @@ describe('Motor de Previsão de Apostilas & Cronograma de Compras', () => {
   it('deve aplicar as durações de cursos das exceções conhecidas da Microlins', () => {
     const catalog = getDefaultCourseDurations();
 
-    expect(resolveCourseTotalLessons('Robótica 1', catalog).totalLessons).toBe(24);
-    expect(resolveCourseTotalLessons('Robótica 2', catalog).totalLessons).toBe(24);
-    expect(resolveCourseTotalLessons('Desenvolvimento de Games 2D', catalog).totalLessons).toBe(24);
+    expect(resolveCourseTotalLessons('Robótica - Módulo I', catalog).totalLessons).toBe(24);
+    expect(resolveCourseTotalLessons('Robótica - Módulo II', catalog).totalLessons).toBe(24);
+    expect(resolveCourseTotalLessons('Desenvolvimento de Games', catalog).totalLessons).toBe(24);
     expect(resolveCourseTotalLessons('Desenvolvimento de Games 3D - Módulo I', catalog).totalLessons).toBe(24);
     expect(resolveCourseTotalLessons('Desenvolvimento de Games 3D - Módulo II', catalog).totalLessons).toBe(16);
     expect(resolveCourseTotalLessons('Lógica de Programação', catalog).totalLessons).toBe(12);
     expect(resolveCourseTotalLessons('Google Adwords', catalog).totalLessons).toBe(8);
     expect(resolveCourseTotalLessons('Redes - Cabeamento e Infraestrutura', catalog).totalLessons).toBe(13);
     expect(resolveCourseTotalLessons('Redes - Lógica e Estruturação', catalog).totalLessons).toBe(12);
-    expect(resolveCourseTotalLessons('Redes - Tecnologia Wireless', catalog).totalLessons).toBe(8);
+    expect(resolveCourseTotalLessons('Redes - Tecnologias Wireless', catalog).totalLessons).toBe(8);
 
     // Duração padrão para cursos comuns
     expect(resolveCourseTotalLessons('Word 2021', catalog).totalLessons).toBe(16);
@@ -74,7 +74,7 @@ describe('Motor de Previsão de Apostilas & Cronograma de Compras', () => {
       },
       {
         studentName: 'Aluno Especial Rápido',
-        rawSubjectName: '161870_Robótica 1',
+        rawSubjectName: '161870_Robótica - Módulo I',
         currentLesson: 20, // faltam 4 aulas para acabar a matéria de 24 aulas
         physicalDelivery: 'Sim', // já tem dessa, precisará da PRÓXIMA matéria
         remainingSubjectsCount: 1,
@@ -93,26 +93,36 @@ describe('Motor de Previsão de Apostilas & Cronograma de Compras', () => {
       horizonMonths: 4,
     });
 
-    expect(result.forecastItems.length).toBe(3);
+    // 3 alunos únicos no período
+    expect(result.uniqueStudentsCount).toBe(3);
+    // Demanda distribuída ao longo dos ciclos e meses
+    expect(result.forecastItems.length).toBeGreaterThanOrEqual(3);
 
-    // Aluno imediato
-    const imediato = result.forecastItems.find((i) => i.studentName === 'Aluno Imediato');
+    // Aluno imediato no Mês 1
+    const imediato = result.forecastItems.find(
+      (i) => i.studentName === 'Aluno Imediato' && i.stage === 'atual'
+    );
     expect(imediato?.status).toBe('imediato');
     expect(imediato?.estimatedMonthIndex).toBe(1);
 
     // Aluno projetado padrão
-    const projetado = result.forecastItems.find((i) => i.studentName === 'Aluno Projetado Padrão');
+    const projetado = result.forecastItems.find(
+      (i) => i.studentName === 'Aluno Projetado Padrão' && i.stage === 'atual'
+    );
     expect(projetado?.status).toBe('projetado');
     expect(projetado?.lessonsPerWeek).toBe(2);
     expect(projetado?.isSpecial).toBe(false);
 
     // Aluno especial rápido
-    const especial = result.forecastItems.find((i) => i.studentName === 'Aluno Especial Rápido');
+    const especial = result.forecastItems.find(
+      (i) => i.studentName === 'Aluno Especial Rápido'
+    );
     expect(especial?.lessonsPerWeek).toBe(4);
     expect(especial?.isSpecial).toBe(true);
 
-    // Verifica que o resumo mensal tem 4 meses
+    // Verifica que o resumo mensal tem 4 meses e distribui demandas
     expect(result.monthlySummaries.length).toBe(4);
     expect(result.monthlySummaries[0].totalWorkbooks).toBeGreaterThan(0);
+    expect(result.totalWorkbooksCount).toBeGreaterThan(0);
   });
 });

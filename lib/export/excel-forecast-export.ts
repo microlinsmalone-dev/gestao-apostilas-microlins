@@ -153,15 +153,17 @@ function buildDetailedStudentsWorksheet(forecastItems: ForecastStudentItem[]): a
   ws['F2'] = { t: 's', v: '', s: titleStyle };
   ws['G2'] = { t: 's', v: '', s: titleStyle };
   ws['H2'] = { t: 's', v: '', s: titleStyle };
+  ws['I2'] = { t: 's', v: '', s: titleStyle };
 
-  // Cabeçalhos B4:H4
+  // Cabeçalhos B4:I4
   ws['B4'] = { t: 's', v: 'Aluno', s: headerStyle };
-  ws['C4'] = { t: 's', v: 'Matéria Atual', s: headerStyle };
-  ws['D4'] = { t: 's', v: 'Aula / Total', s: headerStyle };
-  ws['E4'] = { t: 's', v: 'Ritmo Semanal', s: headerStyle };
-  ws['F4'] = { t: 's', v: 'Matérias Restantes', s: headerStyle };
-  ws['G4'] = { t: 's', v: 'Mês Estimado', s: headerStyle };
-  ws['H4'] = { t: 's', v: 'Status da Demanda', s: headerStyle };
+  ws['C4'] = { t: 's', v: 'Matéria Solicitada', s: headerStyle };
+  ws['D4'] = { t: 's', v: 'Etapa / Ciclo', s: headerStyle };
+  ws['E4'] = { t: 's', v: 'Aula / Total', s: headerStyle };
+  ws['F4'] = { t: 's', v: 'Ritmo Semanal', s: headerStyle };
+  ws['G4'] = { t: 's', v: 'Matérias Restantes', s: headerStyle };
+  ws['H4'] = { t: 's', v: 'Mês Estimado', s: headerStyle };
+  ws['I4'] = { t: 's', v: 'Status da Demanda', s: headerStyle };
 
   let currentRow = 5;
 
@@ -173,34 +175,42 @@ function buildDetailedStudentsWorksheet(forecastItems: ForecastStudentItem[]): a
         ? 'Projetado'
         : 'Sem Demanda no Período';
 
+    const stageLabel =
+      item.stage === 'atual'
+        ? 'Matéria Atual'
+        : item.stage === 'proxima'
+        ? 'Próxima Matéria'
+        : 'Matéria Futura';
+
     ws[`B${currentRow}`] = { t: 's', v: item.studentName, s: dataStyleLeft };
     ws[`C${currentRow}`] = { t: 's', v: item.subjectName, s: dataStyleLeft };
-    ws[`D${currentRow}`] = { t: 's', v: `${item.currentLesson} / ${item.totalLessons}`, s: dataStyleCenter };
-    ws[`E${currentRow}`] = {
+    ws[`D${currentRow}`] = { t: 's', v: stageLabel, s: dataStyleCenter };
+    ws[`E${currentRow}`] = { t: 's', v: `${item.currentLesson} / ${item.totalLessons}`, s: dataStyleCenter };
+    ws[`F${currentRow}`] = {
       t: 's',
       v: item.isSpecial ? `${item.lessonsPerWeek}x/sem (Especial)` : `${item.lessonsPerWeek}x/sem`,
       s: dataStyleCenter,
     };
-    ws[`F${currentRow}`] = { t: 'n', v: item.remainingSubjectsCount, s: dataStyleCenter };
-    ws[`G${currentRow}`] = { t: 's', v: item.estimatedMonthLabel, s: dataStyleCenter };
-    ws[`H${currentRow}`] = { t: 's', v: statusLabel, s: dataStyleCenter };
+    ws[`G${currentRow}`] = { t: 'n', v: item.remainingSubjectsCount, s: dataStyleCenter };
+    ws[`H${currentRow}`] = { t: 's', v: item.estimatedMonthLabel, s: dataStyleCenter };
+    ws[`I${currentRow}`] = { t: 's', v: statusLabel, s: dataStyleCenter };
     currentRow++;
   });
 
-  ws['!merges'] = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 7 } }];
+  ws['!merges'] = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 8 } }];
 
   ws['!cols'] = [
     { wch: 4 },
     { wch: 35 }, // Aluno
-    { wch: 30 }, // Matéria
+    { wch: 32 }, // Matéria
+    { wch: 18 }, // Etapa
     { wch: 15 }, // Aula / Total
     { wch: 18 }, // Ritmo
     { wch: 18 }, // Restantes
     { wch: 22 }, // Mês Estimado
     { wch: 22 }, // Status
   ];
-
-  ws['!ref'] = `A1:H${currentRow + 1}`;
+  ws['!ref'] = `A1:I${currentRow + 1}`;
 
   return ws;
 }

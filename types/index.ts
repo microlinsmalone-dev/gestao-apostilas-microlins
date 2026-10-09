@@ -162,6 +162,7 @@ export interface ForecastStudentItem {
   status: 'imediato' | 'projetado' | 'sem_demanda' | 'pendencia';
   nextSubjectName?: string;
   hasPhysicalDelivery?: boolean;
+  stage?: 'atual' | 'proxima' | 'futura';
 }
 
 /**
@@ -171,6 +172,7 @@ export interface ForecastMonthlySummary {
   monthIndex: number;
   monthLabel: string;
   totalWorkbooks: number;
+  uniqueStudentsCount?: number;
   subjectsBreakdown: { subject: string; count: number }[];
 }
 

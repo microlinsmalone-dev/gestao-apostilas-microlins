@@ -1,21 +1,35 @@
 // ==============================================================================
 // GESTÃO DE APOSTILAS - MICROLINS POTIRENDABA
 // Motor de Regras: lib/domain/forecast-engine.ts
-// Motor de Cálculo de Previsão de Apostilas & Cronograma de Compras
+// Motor de Cálculo de Previsão de Apostilas & Cronograma de Compras Multi-Meses
 // ==============================================================================
 
 import {
   CourseDurationConfig,
-  StudentFrequencyConfig,
   ForecastStudentItem,
   ForecastMonthlySummary,
   DataIssueItem,
   ProcessedStudentItem,
 } from '../../types';
 import { cleanSubject, normalizeText } from './sanitizer';
+import {
+  CURSOS_OFICIAIS_SISTEMA_FICHAS,
+  getCursosOficiaisSistemaFichas,
+} from './cursos-oficiais';
 
 /**
- * Cursos comportamentais e extracurriculares válidos mesmo sem prefixo numérico
+ * Matérias ignoradas por padrão (sem apostila física padrão)
+ */
+export const IGNORED_FORECAST_SUBJECTS = [
+  'Digitação',
+  'Digitacao',
+  'Inglês',
+  'Ingles',
+  'English',
+];
+
+/**
+ * Cursos comportamentais válidos
  */
 export const ALLOWED_SPECIAL_SUBJECTS = [
   'Inteligência Emocional',
@@ -34,94 +48,37 @@ export const ALLOWED_SPECIAL_SUBJECTS = [
 ];
 
 /**
- * Matérias ignoradas por padrão (sem apostila física padrão)
- */
-export const IGNORED_FORECAST_SUBJECTS = [
-  'Digitação',
-  'Digitacao',
-  'Inglês',
-  'Ingles',
-  'English',
-];
-
-/**
- * Exceções conhecidas de total de aulas por matéria da Microlins
- */
-export const DEFAULT_COURSE_EXCEPTIONS: Record<string, number> = {
-  'Robótica 1': 24,
-  'Robotica 1': 24,
-  'Robótica 2': 24,
-  'Robotica 2': 24,
-  'Desenvolvimento de Games 2D': 24,
-  'Desenvolvimento de Games 3D - Módulo I': 24,
-  'Desenvolvimento de Games 3D - Modulo I': 24,
-  'Desenvolvimento de Games 3D - Módulo II': 16,
-  'Desenvolvimento de Games 3D - Modulo II': 16,
-  'Lógica de Programação': 12,
-  'Logica de Programacao': 12,
-  'Google Adwords': 8,
-  'Google Ads': 8,
-  'Redes - Cabeamento e Infraestrutura': 13,
-  'Redes - Lógica e Estruturação': 12,
-  'Redes - Logica e Estruturacao': 12,
-  'Redes - Tecnologia Wireless': 8,
-};
-
-/**
  * Duração padrão aplicada para qualquer matéria sem regra específica
  */
 export const DEFAULT_LESSONS_PER_COURSE = 16;
 
 /**
- * Retorna as configurações iniciais de duração de cursos do sistema
+ * Retorna as configurações oficiais de cursos extraídas de D:\Malone\CriaFichas\sistema_fichas.db
  */
 export function getDefaultCourseDurations(): CourseDurationConfig[] {
-  const baseList: { name: string; totalLessons: number }[] = [
-    { name: 'Word 2021', totalLessons: 16 },
-    { name: 'Excel 2021', totalLessons: 16 },
-    { name: 'PowerPoint 2021', totalLessons: 16 },
-    { name: 'Windows 11', totalLessons: 16 },
-    { name: 'Internet e Redes Sociais', totalLessons: 16 },
-    { name: 'Robótica 1', totalLessons: 24 },
-    { name: 'Robótica 2', totalLessons: 24 },
-    { name: 'Desenvolvimento de Games 2D', totalLessons: 24 },
-    { name: 'Desenvolvimento de Games 3D - Módulo I', totalLessons: 24 },
-    { name: 'Desenvolvimento de Games 3D - Módulo II', totalLessons: 16 },
-    { name: 'Lógica de Programação', totalLessons: 12 },
-    { name: 'Google Adwords', totalLessons: 8 },
-    { name: 'Redes - Cabeamento e Infraestrutura', totalLessons: 13 },
-    { name: 'Redes - Lógica e Estruturação', totalLessons: 12 },
-    { name: 'Redes - Tecnologia Wireless', totalLessons: 8 },
-    { name: 'Photoshop', totalLessons: 16 },
-    { name: 'CorelDraw', totalLessons: 16 },
-    { name: 'Ilustração Digital', totalLessons: 16 },
-    { name: 'Design Gráfico', totalLessons: 16 },
-    { name: 'Edição de Vídeo', totalLessons: 16 },
-    { name: 'Operador de Caixa', totalLessons: 16 },
-    { name: 'Auxiliar Administrativo', totalLessons: 16 },
-    { name: 'Gestão de Pessoas', totalLessons: 16 },
-    { name: 'Marketing Digital', totalLessons: 16 },
-    { name: 'Inteligência Emocional', totalLessons: 16 },
-    { name: 'Marketing Pessoal', totalLessons: 16 },
-    { name: 'Comunicação e Oratória', totalLessons: 16 },
-    { name: 'Educação Financeira', totalLessons: 16 },
-    { name: 'Inovação e Criatividade', totalLessons: 16 },
-    { name: 'Negociação, Objeções e Influência', totalLessons: 16 },
-    { name: 'Produtividade e Gestão do Tempo', totalLessons: 16 },
-  ];
-
-  return baseList.map((c, i) => ({
-    id: `course_${i + 1}`,
-    name: c.name,
-    totalLessons: c.totalLessons,
-    active: true,
-  }));
+  return getCursosOficiaisSistemaFichas();
 }
 
 /**
- * Valida e higieniza a matéria conforme regras de negócio da Microlins
+ * Limpa o nome da matéria removendo prefixo numérico (ex: 161870_) e marcadores de turma
  */
-export function isValidForecastSubject(rawSubject: string): {
+export function sanitizeRawSubject(raw: string): string {
+  if (!raw) return '';
+  let cleaned = String(raw).trim();
+  // Remove prefixos como 161870_ ou 26748_
+  cleaned = cleaned.replace(/^\d+_\s*/, '');
+  // Remove sufixos como [DINÂMICA] ou - Enter
+  cleaned = cleaned.replace(/\s*\[.*?\]\s*/g, '');
+  return cleaned.trim();
+}
+
+/**
+ * Valida e cruza a matéria contra os 101 cursos oficiais do sistema_fichas.db
+ */
+export function isValidForecastSubject(
+  rawSubject: string,
+  catalog: CourseDurationConfig[] = CURSOS_OFICIAIS_SISTEMA_FICHAS
+): {
   valid: boolean;
   cleanName: string;
   reason?: string;
@@ -130,69 +87,107 @@ export function isValidForecastSubject(rawSubject: string): {
     return { valid: false, cleanName: '', reason: 'Nome da matéria vazio' };
   }
 
-  const trimmed = rawSubject.trim();
+  const raw = rawSubject.trim();
+  const normRaw = normalizeText(raw);
 
-  // Verifica se é matéria ignorada (ex: Digitação, Inglês)
+  // Ignora Digitação e Inglês
   for (const ignored of IGNORED_FORECAST_SUBJECTS) {
-    if (normalizeText(trimmed).includes(normalizeText(ignored))) {
-      return { valid: false, cleanName: trimmed, reason: 'Matéria excluída (Inglês/Digitação)' };
+    if (normRaw.includes(normalizeText(ignored))) {
+      return { valid: false, cleanName: raw, reason: 'Matéria excluída (Inglês/Digitação)' };
     }
   }
 
-  // Verifica se está na lista de exceções válidas sem número
+  const cleaned = sanitizeRawSubject(raw);
+  const normCleaned = normalizeText(cleaned);
+
+  // 1. Busca exata ou por similaridade no catálogo oficial dos 101 cursos
+  const exactMatch = catalog.find((c) => normalizeText(c.name) === normCleaned);
+  if (exactMatch) {
+    return { valid: true, cleanName: exactMatch.name };
+  }
+
+  // 2. Busca por contenção (substring) nos cursos oficiais
+  const partialMatch = catalog.find((c) => {
+    const cNorm = normalizeText(c.name);
+    return normCleaned === cNorm || normCleaned.includes(cNorm) || cNorm.includes(normCleaned);
+  });
+  if (partialMatch) {
+    return { valid: true, cleanName: partialMatch.name };
+  }
+
+  // 3. Exceções comportamentais
   for (const allowed of ALLOWED_SPECIAL_SUBJECTS) {
-    if (normalizeText(trimmed).includes(normalizeText(allowed))) {
+    if (normCleaned.includes(normalizeText(allowed))) {
       return { valid: true, cleanName: allowed };
     }
   }
 
-  // Se tiver código numérico no início (ex: 161869_Windows 11)
-  const hasPrefix = /^\d+_\s*/.test(trimmed);
-  if (hasPrefix) {
-    return { valid: true, cleanName: cleanSubject(trimmed) };
+  // 4. Se tinha prefixo numérico (ex: 161869_Windows 11) mas nome ligeiramente diferente
+  const hasPrefix = /^\d+_\s*/.test(raw);
+  if (hasPrefix && cleaned.length >= 3) {
+    return { valid: true, cleanName: cleaned };
   }
 
-  // Cursos descontinuados sem prefixo (ex: Youtuber) são ignorados
   return {
     valid: false,
-    cleanName: trimmed,
-    reason: 'Curso descontinuado (sem código identificador)',
+    cleanName: cleaned,
+    reason: 'Curso descontinuado ou não encontrado no catálogo oficial',
   };
 }
 
 /**
- * Busca a duração total de uma matéria baseando-se no catálogo configurado
+ * Busca a duração total de uma matéria baseando-se no catálogo oficial configurado
  */
 export function resolveCourseTotalLessons(
   subjectName: string,
-  coursesConfig: CourseDurationConfig[]
+  coursesConfig: CourseDurationConfig[] = CURSOS_OFICIAIS_SISTEMA_FICHAS
 ): { totalLessons: number; active: boolean } {
   const normTarget = normalizeText(subjectName);
 
-  // Procura no catálogo configurado pelo operador
-  const found = coursesConfig.find((c) => normalizeText(c.name) === normTarget);
-  if (found) {
-    return { totalLessons: found.totalLessons, active: found.active };
+  // 1. Busca EXATA primeiro
+  const exact = coursesConfig.find((c) => normalizeText(c.name) === normTarget);
+  if (exact) {
+    return { totalLessons: exact.totalLessons, active: exact.active };
   }
 
-  // Procura nas exceções padrão
-  for (const [key, val] of Object.entries(DEFAULT_COURSE_EXCEPTIONS)) {
-    if (normalizeText(key) === normTarget) {
-      return { totalLessons: val, active: true };
-    }
+  // 2. Tenta mapear numerais romanos exatos (ex: Robótica 1 -> Robótica - Módulo I)
+  const romanVariant = normTarget
+    .replace(/\b1\b/g, 'modulo i')
+    .replace(/\b2\b/g, 'modulo ii')
+    .replace(/\b3\b/g, 'modulo iii')
+    .replace(/\b4\b/g, 'modulo iv');
+
+  const exactRoman = coursesConfig.find((c) => normalizeText(c.name) === romanVariant);
+  if (exactRoman) {
+    return { totalLessons: exactRoman.totalLessons, active: exactRoman.active };
   }
 
-  // Duração padrão
+  // 3. Busca por contenção ordenando pelo maior nome para evitar falso positivo com prefixos curtos
+  const matches = coursesConfig.filter((c) => {
+    const norm = normalizeText(c.name);
+    return (
+      normTarget.includes(norm) ||
+      norm.includes(normTarget) ||
+      romanVariant.includes(norm) ||
+      norm.includes(romanVariant)
+    );
+  });
+
+  if (matches.length > 0) {
+    matches.sort((a, b) => b.name.length - a.name.length);
+    return { totalLessons: matches[0].totalLessons, active: matches[0].active };
+  }
+
   return { totalLessons: DEFAULT_LESSONS_PER_COURSE, active: true };
 }
 
 /**
- * Nomes dos meses futuros a partir da data de referência
+ * Nomes dos meses futuros com rótulos relativos amigáveis
  */
 export function getUpcomingMonthLabels(
   referenceDate: Date = new Date(),
   totalMonths: number = 4
-): { index: number; label: string; yearMonth: string }[] {
+): { index: number; label: string; relativeLabel: string; yearMonth: string }[] {
   const monthsBR = [
     'Janeiro',
     'Fevereiro',
@@ -208,8 +203,15 @@ export function getUpcomingMonthLabels(
     'Dezembro',
   ];
 
-  const result: { index: number; label: string; yearMonth: string }[] = [];
-  const currentMonth = referenceDate.getMonth(); // 0..11
+  const relativeNames = [
+    'Mês Atual',
+    'Daqui a 1 mês',
+    'Daqui a 2 meses',
+    'Daqui a 3 meses',
+  ];
+
+  const result: { index: number; label: string; relativeLabel: string; yearMonth: string }[] = [];
+  const currentMonth = referenceDate.getMonth();
   const currentYear = referenceDate.getFullYear();
 
   for (let i = 0; i < totalMonths; i++) {
@@ -219,6 +221,7 @@ export function getUpcomingMonthLabels(
     result.push({
       index: i + 1,
       label: `${monthsBR[mIdx]} / ${yr}`,
+      relativeLabel: relativeNames[i] || `Mês ${i + 1}`,
       yearMonth: `${yr}-${String(mIdx + 1).padStart(2, '0')}`,
     });
   }
@@ -227,23 +230,26 @@ export function getUpcomingMonthLabels(
 }
 
 /**
- * Calcula a projeção cronológica de solicitações de apostila para os alunos
+ * Motor de Projeção Multi-Meses & Multi-Ciclos
+ * Calcula com fidelidade matemática a progressão de todos os alunos ativos da escola
  */
 export function computeStudentsForecast(params: {
   rawOrProcessedItems: (ProcessedStudentItem | Record<string, unknown>)[];
   coursesConfig: CourseDurationConfig[];
-  frequencyConfigs: Record<string, number>; // aluno -> aulas por semana
+  frequencyConfigs: Record<string, number>; // aluno -> aulas por semana (1 a 4)
   triggerLesson?: number; // padrão 4
   horizonMonths?: number; // 1 a 4 meses
   referenceDate?: Date;
 }): {
   forecastItems: ForecastStudentItem[];
   monthlySummaries: ForecastMonthlySummary[];
+  uniqueStudentsCount: number;
+  totalWorkbooksCount: number;
   issues: DataIssueItem[];
 } {
   const {
     rawOrProcessedItems,
-    coursesConfig,
+    coursesConfig = CURSOS_OFICIAIS_SISTEMA_FICHAS,
     frequencyConfigs,
     triggerLesson = 4,
     horizonMonths = 4,
@@ -254,17 +260,40 @@ export function computeStudentsForecast(params: {
   const forecastItems: ForecastStudentItem[] = [];
   const issues: DataIssueItem[] = [];
 
-  const monthlyCounts: Record<number, { label: string; count: number; subjects: Record<string, number> }> = {};
+  const monthlyCounts: Record<
+    number,
+    {
+      label: string;
+      relativeLabel: string;
+      count: number;
+      students: Set<string>;
+      subjects: Record<string, number>;
+    }
+  > = {};
+
   monthLabels.forEach((m) => {
-    monthlyCounts[m.index] = { label: m.label, count: 0, subjects: {} };
+    monthlyCounts[m.index] = {
+      label: m.label,
+      relativeLabel: m.relativeLabel,
+      count: 0,
+      students: new Set<string>(),
+      subjects: {},
+    };
   });
 
-  const processedStudentsSet = new Set<string>();
+  const uniqueStudentsGlobal = new Set<string>();
+  const processedKeys = new Set<string>();
 
   rawOrProcessedItems.forEach((row, idx) => {
+    // 1. Extração segura dos campos
     const studentName = String(
-      (row as any).studentName || (row as any)['Aluno'] || (row as any)['Nome'] || ''
+      (row as any).studentName ||
+        (row as any)['Aluno'] ||
+        (row as any)['Nome'] ||
+        (row as any)['student_name'] ||
+        ''
     ).trim();
+
     const rawSubject = String(
       (row as any).rawSubjectName ||
         (row as any).subjectName ||
@@ -273,31 +302,52 @@ export function computeStudentsForecast(params: {
         (row as any)['Curso'] ||
         ''
     ).trim();
-    const educatorName = String(
-      (row as any).educatorName || (row as any)['Educador'] || ''
-    ).trim();
-    const currentLessonRaw =
-      (row as any).currentLesson ??
-      (row as any)['Aula'] ??
-      (row as any)['Aulas Realizadas'] ??
-      (row as any)['Aulas'] ??
-      1;
 
-    if (!studentName) {
-      return; // Linha sem aluno
-    }
+    if (!studentName) return;
 
-    // Evita duplicatas se mesmo aluno vier listado repetido no relatório
-    const studentKey = `${normalizeText(studentName)}__${normalizeText(rawSubject)}`;
-    if (processedStudentsSet.has(studentKey)) {
+    // Filtros de status de contrato e inadimplência
+    const statusContrato = String((row as any).contractStatus || (row as any)['Status Contrato'] || 'Ativo').trim();
+    if (statusContrato.toLowerCase() === 'cancelado' || statusContrato.toLowerCase() === 'inativo') {
       return;
     }
-    processedStudentsSet.add(studentKey);
 
+    const inadimplente = String((row as any).delinquent || (row as any)['Inadimplente'] || 'Não').trim();
+    if (inadimplente.toLowerCase() === 'sim') {
+      return;
+    }
+
+    const tipoContrato = String((row as any).contractType || (row as any)['Tipo Contrato'] || '').trim();
+    if (tipoContrato.toLowerCase() === 'bolsista') {
+      return;
+    }
+
+    // Status da matéria atual (se for concluída, não é a matéria atual)
+    const statusMateria = String((row as any).subjectStatus || (row as any)['Status Matéria'] || (row as any)['Status Materia'] || 'Ativo').trim();
+    if (statusMateria.toLowerCase() === 'concluído' || statusMateria.toLowerCase() === 'concluido' || statusMateria.toLowerCase() === 'cancelado') {
+      return;
+    }
+
+    // Evita duplicar o mesmo aluno na mesma matéria
+    const studentSubjectKey = `${normalizeText(studentName)}__${normalizeText(rawSubject)}`;
+    if (processedKeys.has(studentSubjectKey)) {
+      return;
+    }
+    processedKeys.add(studentSubjectKey);
+
+    const educatorName = String((row as any).educatorName || (row as any)['Educador'] || '').trim();
+    const courseName = String((row as any).courseName || (row as any)['Formação'] || (row as any)['Formacao'] || '').trim();
+    const nextSubjectRaw = String((row as any).nextSubject || (row as any)['Próxima Matéria'] || (row as any)['Proxima Materia'] || '').trim();
+
+    const currentLessonRaw =
+      (row as any).currentLesson ??
+      (row as any)['Aula Atual'] ??
+      (row as any)['Aula'] ??
+      (row as any)['Aulas Realizadas'] ??
+      1;
     const currentLesson = typeof currentLessonRaw === 'number' ? currentLessonRaw : parseInt(String(currentLessonRaw), 10) || 1;
 
-    // 1. Validação da matéria
-    const subjectValidation = isValidForecastSubject(rawSubject);
+    // 2. Validação da matéria
+    const subjectValidation = isValidForecastSubject(rawSubject, coursesConfig);
     if (!subjectValidation.valid) {
       if (rawSubject && !IGNORED_FORECAST_SUBJECTS.some((i) => normalizeText(rawSubject).includes(normalizeText(i)))) {
         issues.push({
@@ -305,141 +355,158 @@ export function computeStudentsForecast(params: {
           studentName,
           subjectName: rawSubject,
           issueType: 'missing_subject',
-          description: subjectValidation.reason || 'Matéria inválida ou descontinuada',
-          solutionTip: 'Verifique se a matéria possui código ou se foi desativada no cadastro.',
+          description: subjectValidation.reason || 'Matéria não reconhecida no catálogo oficial',
+          solutionTip: 'Verifique no Cadastro de Cursos se a matéria está ativa.',
         });
       }
       return;
     }
 
     const cleanSubj = subjectValidation.cleanName;
-
-    // 2. Busca duração do curso
-    const courseDuration = resolveCourseTotalLessons(cleanSubj, coursesConfig);
-    if (!courseDuration.active) {
-      // Curso desativado na lixeira do Cadastro de Cursos
-      return;
+    const courseInfo = resolveCourseTotalLessons(cleanSubj, coursesConfig);
+    if (!courseInfo.active) {
+      return; // Matéria desativada na lixeira
     }
 
-    const totalLessons = courseDuration.totalLessons;
-
-    // Detecta pendência de aula inconsistente
-    if (currentLesson > totalLessons) {
-      issues.push({
-        id: `issue_${idx}_lesson`,
-        studentName,
-        subjectName: cleanSubj,
-        issueType: 'missing_lesson',
-        description: `Aula atual (${currentLesson}) é maior que a duração total da matéria (${totalLessons} aulas)`,
-        solutionTip: 'Ajuste a duração total da matéria no Cadastro de Cursos.',
-      });
-    }
+    const totalLessons = courseInfo.totalLessons;
+    const remainingLessonsInSubject = Math.max(0, totalLessons - currentLesson);
 
     // 3. Frequência semanal (aulas por semana)
     const configuredFreq = frequencyConfigs[normalizeText(studentName)];
     const lessonsPerWeek = configuredFreq && configuredFreq >= 1 && configuredFreq <= 4 ? configuredFreq : 2;
     const isSpecial = lessonsPerWeek > 2;
 
-    // 4. Matérias restantes (do Controle Pedagógico se disponível)
     const remainingSubjectsRaw =
       (row as any).remainingSubjectsCount ??
       (row as any)['Matérias Restantes'] ??
       (row as any)['Materias Restantes'] ??
-      (row as any)['Qtd Materias Restantes'] ??
-      1;
+      2;
     const remainingSubjectsCount = typeof remainingSubjectsRaw === 'number'
       ? remainingSubjectsRaw
-      : parseInt(String(remainingSubjectsRaw), 10) || 1;
+      : parseInt(String(remainingSubjectsRaw), 10) || 2;
 
-    // 5. Cálculo da solicitação
     const hasPhysicalDelivery =
       (row as any).physicalDelivery === 'Sim' ||
       (row as any)['Entrega Física'] === 'Sim' ||
       (row as any).hasPhysicalDelivery === true;
 
-    let weeksUntilNextOrder = 0;
-    let estimatedMonthIndex = 1; // Padrão Mês 1
-    let status: 'imediato' | 'projetado' | 'sem_demanda' = 'projetado';
+    // Helper interno para agendar uma demanda em um determinado mês
+    const scheduleDemand = (
+      subjName: string,
+      targetMonthIndex: number,
+      weeksWait: number,
+      demandStatus: 'imediato' | 'projetado',
+      stage: 'atual' | 'proxima' | 'futura'
+    ) => {
+      if (targetMonthIndex < 1 || targetMonthIndex > horizonMonths) return;
 
-    const remainingLessonsInSubject = Math.max(0, totalLessons - currentLesson);
+      const mSlot = monthlyCounts[targetMonthIndex];
+      if (!mSlot) return;
 
-    if (!hasPhysicalDelivery && currentLesson >= triggerLesson) {
-      // Aluno já está na aula do gatilho ou superior e ainda não tem apostila -> Pedido Imediato no Mês 1
-      status = 'imediato';
-      weeksUntilNextOrder = 0;
-      estimatedMonthIndex = 1;
-    } else if (!hasPhysicalDelivery && currentLesson < triggerLesson) {
-      // Precisa da apostila da matéria atual ao atingir o gatilho
-      const lessonsUntilTrigger = triggerLesson - currentLesson;
-      weeksUntilNextOrder = Math.max(1, Math.ceil(lessonsUntilTrigger / lessonsPerWeek));
-      // Cada mês possui aproximadamente 4 semanas
-      estimatedMonthIndex = Math.min(horizonMonths, Math.max(1, Math.ceil(weeksUntilNextOrder / 4)));
-      status = 'projetado';
-    } else {
-      // Já possui a apostila da matéria atual -> solicitação será para a PRÓXIMA matéria
-      if (remainingSubjectsCount <= 0) {
-        status = 'sem_demanda';
-        estimatedMonthIndex = 0;
+      mSlot.count++;
+      mSlot.students.add(studentName);
+      mSlot.subjects[subjName] = (mSlot.subjects[subjName] || 0) + 1;
+      uniqueStudentsGlobal.add(studentName);
+
+      forecastItems.push({
+        id: `fc_${idx}_${normalizeText(studentName).replace(/\s+/g, '_')}_m${targetMonthIndex}_${stage}`,
+        studentName,
+        subjectName: subjName,
+        courseName,
+        educatorName,
+        currentLesson,
+        totalLessons,
+        remainingLessonsInSubject,
+        remainingSubjectsCount,
+        lessonsPerWeek,
+        isSpecial,
+        triggerLesson,
+        weeksUntilNextOrder: weeksWait,
+        estimatedMonthLabel: `${mSlot.label} (${mSlot.relativeLabel})`,
+        estimatedMonthIndex: targetMonthIndex,
+        status: demandStatus,
+        nextSubjectName: nextSubjectRaw,
+        hasPhysicalDelivery,
+        stage,
+      });
+    };
+
+    // =========================================================================
+    // CICLO 1: APOSTILA DA MATÉRIA ATUAL (Se ainda não entregue)
+    // =========================================================================
+    let currentSubjectDeliveredInMonth = 0;
+
+    if (!hasPhysicalDelivery) {
+      if (currentLesson >= triggerLesson) {
+        // Aluno já está na aula do gatilho ou acima e não tem apostila -> Demanda Imediata Mês 1
+        scheduleDemand(cleanSubj, 1, 0, 'imediato', 'atual');
+        currentSubjectDeliveredInMonth = 1;
       } else {
-        // Aulas até terminar atual + atingir gatilho da próxima
-        const lessonsUntilNextSubjectTrigger = remainingLessonsInSubject + triggerLesson;
-        weeksUntilNextOrder = Math.max(1, Math.ceil(lessonsUntilNextSubjectTrigger / lessonsPerWeek));
-        estimatedMonthIndex = Math.ceil(weeksUntilNextOrder / 4);
+        // Aluno está antes do gatilho (ex: aula 1 a 3) -> atinge gatilho em algumas semanas
+        const lessonsToTrigger = triggerLesson - currentLesson;
+        const weeksToTrigger = Math.max(1, Math.ceil(lessonsToTrigger / lessonsPerWeek));
+        const monthOfTrigger = Math.min(horizonMonths, Math.max(1, Math.ceil(weeksToTrigger / 4)));
+        scheduleDemand(cleanSubj, monthOfTrigger, weeksToTrigger, 'projetado', 'atual');
+        currentSubjectDeliveredInMonth = monthOfTrigger;
+      }
+    }
 
-        if (estimatedMonthIndex > horizonMonths) {
-          status = 'sem_demanda';
-          estimatedMonthIndex = 0;
-        } else {
-          status = 'projetado';
+    // =========================================================================
+    // CICLO 2: APOSTILA DA PRÓXIMA MATÉRIA
+    // O aluno termina a matéria atual e atinge a aula 4 da próxima matéria
+    // =========================================================================
+    if (remainingSubjectsCount > 0) {
+      // Semanas até concluir a matéria atual
+      const weeksToFinishCurrent = Math.max(0, Math.ceil(remainingLessonsInSubject / lessonsPerWeek));
+      // Na próxima matéria, precisará de apostila na aula triggerLesson (4)
+      const weeksToTriggerNext = weeksToFinishCurrent + Math.max(1, Math.ceil(triggerLesson / lessonsPerWeek));
+      const monthOfNext = Math.ceil(weeksToTriggerNext / 4);
+
+      if (monthOfNext >= 1 && monthOfNext <= horizonMonths) {
+        // Define o nome da próxima matéria
+        let nextSubjName = '';
+        if (nextSubjectRaw) {
+          const nextVal = isValidForecastSubject(nextSubjectRaw, coursesConfig);
+          nextSubjName = nextVal.valid ? nextVal.cleanName : sanitizeRawSubject(nextSubjectRaw);
+        }
+        if (!nextSubjName || nextSubjName === cleanSubj) {
+          nextSubjName = `Próx. Matéria pós ${cleanSubj}`;
+        }
+
+        scheduleDemand(nextSubjName, monthOfNext, weeksToTriggerNext, 'projetado', 'proxima');
+
+        // =========================================================================
+        // CICLO 3: APOSTILA FUTURA (Subsequente, se o aluno concluir 2 matérias no período)
+        // =========================================================================
+        if (remainingSubjectsCount > 1) {
+          const nextSubjectDuration = 16;
+          const weeksToFinishNext = weeksToTriggerNext + Math.ceil((nextSubjectDuration - triggerLesson) / lessonsPerWeek);
+          const weeksToTriggerFuture = weeksToFinishNext + Math.max(1, Math.ceil(triggerLesson / lessonsPerWeek));
+          const monthOfFuture = Math.ceil(weeksToTriggerFuture / 4);
+
+          if (monthOfFuture >= 1 && monthOfFuture <= horizonMonths) {
+            scheduleDemand(`Matéria Futura pós ${cleanSubj}`, monthOfFuture, weeksToTriggerFuture, 'projetado', 'futura');
+          }
         }
       }
     }
-
-    const estimatedMonthObj = monthLabels.find((m) => m.index === estimatedMonthIndex);
-    const estimatedMonthLabel = estimatedMonthObj ? estimatedMonthObj.label : 'Fora do Período';
-
-    // Contabiliza nos resumos mensais se estiver dentro do horizonte
-    if (estimatedMonthIndex >= 1 && estimatedMonthIndex <= horizonMonths) {
-      const monthSlot = monthlyCounts[estimatedMonthIndex];
-      if (monthSlot) {
-        monthSlot.count++;
-        monthSlot.subjects[cleanSubj] = (monthSlot.subjects[cleanSubj] || 0) + 1;
-      }
-    }
-
-    forecastItems.push({
-      id: `fc_${idx}_${normalizeText(studentName).replace(/\s+/g, '_')}`,
-      studentName,
-      subjectName: cleanSubj,
-      courseName: (row as any).courseName || '',
-      educatorName,
-      currentLesson,
-      totalLessons,
-      remainingLessonsInSubject,
-      remainingSubjectsCount,
-      lessonsPerWeek,
-      isSpecial,
-      triggerLesson,
-      weeksUntilNextOrder,
-      estimatedMonthLabel,
-      estimatedMonthIndex,
-      status,
-      nextSubjectName: (row as any).nextSubject || '',
-      hasPhysicalDelivery,
-    });
   });
 
-  // Constrói o resumo mensal consolidado
+  // Constrói resumos mensais com totais e contagem de alunos únicos por mês
+  let grandTotalWorkbooks = 0;
   const monthlySummaries: ForecastMonthlySummary[] = monthLabels.map((m) => {
     const slot = monthlyCounts[m.index];
+    grandTotalWorkbooks += slot.count;
+
     const subjectsBreakdown = Object.entries(slot.subjects)
       .map(([subject, count]) => ({ subject, count }))
       .sort((a, b) => b.count - a.count);
 
     return {
       monthIndex: m.index,
-      monthLabel: m.label,
+      monthLabel: `${m.label} (${m.relativeLabel})`,
       totalWorkbooks: slot.count,
+      uniqueStudentsCount: slot.students.size,
       subjectsBreakdown,
     };
   });
@@ -447,6 +514,8 @@ export function computeStudentsForecast(params: {
   return {
     forecastItems,
     monthlySummaries,
+    uniqueStudentsCount: uniqueStudentsGlobal.size,
+    totalWorkbooksCount: grandTotalWorkbooks,
     issues,
   };
 }

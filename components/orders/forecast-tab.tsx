@@ -15,14 +15,14 @@ import {
   RefreshCw,
   Upload,
   CheckCircle2,
-  Sliders,
   Filter,
-  ArrowUpDown,
-  Zap,
-  Info,
-  Calendar,
+  Layers,
+  ChevronDown,
+  ChevronRight,
+  Target,
+  Sparkles,
+  RotateCcw,
   X,
-  HelpCircle,
 } from 'lucide-react';
 import {
   CourseDurationConfig,
@@ -53,6 +53,12 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
   // Sub-abas internas da Previsão
   const [activeSubTab, setActiveSubTab] = useState<'cronograma' | 'frequencia' | 'cursos' | 'pendencias'>('cronograma');
 
+  // Modo de visualização do Cronograma: 'subjects' (Por Matéria / Apostila) ou 'students' (Por Aluno)
+  const [scheduleViewMode, setScheduleViewMode] = useState<'subjects' | 'students'>('subjects');
+
+  // Controle de accordion de matérias expandidas na visão por matéria
+  const [expandedSubjects, setExpandedSubjects] = useState<Record<string, boolean>>({});
+
   // Parâmetros de projeção
   const [horizonMonths, setHorizonMonths] = useState<1 | 2 | 3 | 4>(4);
   const [triggerLesson, setTriggerLesson] = useState<number>(4);
@@ -61,24 +67,31 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Fonte de dados de alunos (pode ser sincronizada do pedido atual ou de arquivo específico)
+  // Modo da fonte de dados dos alunos
+  const [sourceMode, setSourceMode] = useState<'full_sheet' | 'current_order' | 'custom_file'>('full_sheet');
   const [sourceItems, setSourceItems] = useState<(ProcessedStudentItem | Record<string, unknown>)[]>([]);
   const [customUploadedFileName, setCustomUploadedFileName] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // 1. Configurações de Cursos (Durações e Ativação)
+  // 1. Configurações de Cursos (Durações e Ativação) - Carrega os 101 cursos oficiais do sistema_fichas.db
   const [coursesConfig, setCoursesConfig] = useState<CourseDurationConfig[]>(() => {
     if (typeof window !== 'undefined') {
       try {
         const cached = localStorage.getItem('microlins_forecast_courses');
-        if (cached) return JSON.parse(cached);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          // Se tiver pelo menos 80 cursos, aceita o cache; senão, carrega a lista oficial de 101 cursos
+          if (Array.isArray(parsed) && parsed.length >= 80) {
+            return parsed;
+          }
+        }
       } catch (e) {}
     }
     return getDefaultCourseDurations();
   });
 
-  // Modal / Edição rápida de Curso
-  const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
+  // Busca e modal no cadastro de cursos
+  const [courseSearch, setCourseSearch] = useState('');
   const [newCourseName, setNewCourseName] = useState('');
   const [newCourseDuration, setNewCourseDuration] = useState(16);
   const [isAddCourseModalOpen, setIsAddCourseModalOpen] = useState(false);
@@ -99,14 +112,23 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
   const [issueFilterSubject, setIssueFilterSubject] = useState('');
   const [issueFilterType, setIssueFilterType] = useState('all');
 
-  // Sincroniza inicialmente com os itens do pedido se já existirem
+  // Inicializa fonte de dados priorizando a planilha completa com todos os alunos
   useEffect(() => {
-    if (currentOrderItems && currentOrderItems.length > 0 && sourceItems.length === 0) {
-      setSourceItems(currentOrderItems);
+    if (sourceMode === 'full_sheet') {
+      if (rawRows && rawRows.length > 0) {
+        setSourceItems(rawRows);
+      } else if (currentOrderItems && currentOrderItems.length > 0) {
+        setSourceItems(currentOrderItems);
+        setSourceMode('current_order');
+      }
+    } else if (sourceMode === 'current_order') {
+      if (currentOrderItems && currentOrderItems.length > 0) {
+        setSourceItems(currentOrderItems);
+      }
     }
-  }, [currentOrderItems]);
+  }, [rawRows, currentOrderItems, sourceMode]);
 
-  // Carrega configurações persistidas do Supabase / audit_logs ao montar
+  // Carrega configurações persistidas do Supabase ao montar
   useEffect(() => {
     async function fetchSavedConfigs() {
       try {
@@ -124,7 +146,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
 
         if (data && data.metadata) {
           const raw = data.metadata as any;
-          if (Array.isArray(raw.forecast_courses) && raw.forecast_courses.length > 0) {
+          if (Array.isArray(raw.forecast_courses) && raw.forecast_courses.length >= 80) {
             setCoursesConfig(raw.forecast_courses);
           }
           if (raw.forecast_frequencies && typeof raw.forecast_frequencies === 'object') {
@@ -138,7 +160,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
     fetchSavedConfigs();
   }, [unitId]);
 
-  // Handler de upload direto de planilha para a Previsão
+  // Handler de upload direto de planilha avulsa para a Previsão
   const handleDirectFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -155,14 +177,16 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
           excludedContractTypes: ['Bolsista'],
         });
 
-        if (parsed.eligibleItems.length === 0) {
+        if (parsed.rawRows.length === 0 && parsed.eligibleItems.length === 0) {
           showAlert('Nenhum registro legível encontrado na planilha.', 'error', 'Upload de Planilha');
           return;
         }
 
-        setSourceItems(parsed.eligibleItems);
+        const itemsToUse = parsed.rawRows.length > 0 ? parsed.rawRows : parsed.eligibleItems;
+        setSourceItems(itemsToUse);
+        setSourceMode('custom_file');
         setCustomUploadedFileName(file.name);
-        showToast(`Planilha "${file.name}" carregada com sucesso!`, 'success');
+        showToast(`Planilha "${file.name}" carregada com ${itemsToUse.length} registros!`, 'success');
       } catch (err: any) {
         showAlert(`Falha ao ler planilha: ${err.message}`, 'error', 'Erro de Leitura');
       }
@@ -171,20 +195,36 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
     e.target.value = '';
   };
 
-  // Sincroniza em 1 clique com os itens do pedido atual
-  const handleSyncWithOrder = () => {
-    if (currentOrderItems && currentOrderItems.length > 0) {
-      setSourceItems(currentOrderItems);
-      setCustomUploadedFileName('');
-      showToast(`${currentOrderItems.length} alunos sincronizados do pedido em elaboração!`, 'success');
+  // Alterna entre fonte completa e pedido físico atual
+  const handleSelectSource = (mode: 'full_sheet' | 'current_order') => {
+    setSourceMode(mode);
+    setCustomUploadedFileName('');
+    if (mode === 'full_sheet') {
+      if (rawRows && rawRows.length > 0) {
+        setSourceItems(rawRows);
+        showToast(`Utilizando toda a escola (${rawRows.length} registros da planilha completa)!`, 'info');
+      } else {
+        showAlert('A planilha completa não foi carregada no passo 1.', 'warning');
+      }
     } else {
-      showAlert('Não há alunos carregados no pedido em elaboração no momento.', 'warning', 'Sincronizar');
+      if (currentOrderItems && currentOrderItems.length > 0) {
+        setSourceItems(currentOrderItems);
+        showToast(`Utilizando ${currentOrderItems.length} alunos do pedido físico atual!`, 'info');
+      } else {
+        showAlert('Não há alunos carregados no pedido em elaboração.', 'warning');
+      }
     }
   };
 
-  // Cálculo da Previsão
+  // Cálculo do Motor de Previsão Multi-Meses & Multi-Ciclos
   const forecastResult = useMemo(() => {
-    const itemsToProcess = sourceItems.length > 0 ? sourceItems : currentOrderItems;
+    const itemsToProcess =
+      sourceItems.length > 0
+        ? sourceItems
+        : rawRows && rawRows.length > 0
+        ? rawRows
+        : currentOrderItems;
+
     return computeStudentsForecast({
       rawOrProcessedItems: itemsToProcess,
       coursesConfig,
@@ -192,9 +232,12 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
       triggerLesson,
       horizonMonths,
     });
-  }, [sourceItems, currentOrderItems, coursesConfig, frequencyConfigs, triggerLesson, horizonMonths]);
+  }, [sourceItems, rawRows, currentOrderItems, coursesConfig, frequencyConfigs, triggerLesson, horizonMonths]);
 
-  // Alunos filtrados para a tabela do Cronograma
+  // Rótulos amigáveis dos meses (Mês 1 Atual, Daqui a 1 mês, Daqui a 2 meses, Daqui a 3 meses)
+  const monthLabels = useMemo(() => getUpcomingMonthLabels(new Date(), horizonMonths), [horizonMonths]);
+
+  // Alunos e demandas filtrados para a tabela do Cronograma
   const filteredForecastItems = useMemo(() => {
     return forecastResult.forecastItems.filter((item) => {
       if (searchStudent) {
@@ -211,6 +254,75 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
       return true;
     });
   }, [forecastResult.forecastItems, searchStudent, filterMonth]);
+
+  // Agrupamento por Mês e por Matéria para responder: "Quais apostilas, quantas em cada mês, quais alunos?"
+  const monthlySubjectsGrouped = useMemo(() => {
+    const result: {
+      monthIndex: number;
+      monthLabel: string;
+      relativeLabel: string;
+      totalWorkbooks: number;
+      uniqueStudentsCount: number;
+      subjects: {
+        subjectName: string;
+        count: number;
+        students: ForecastStudentItem[];
+      }[];
+    }[] = [];
+
+    monthLabels.forEach((m) => {
+      // Se tiver filtro de mês específico e não for este, ignora
+      if (filterMonth !== 'all' && m.index !== parseInt(filterMonth, 10)) {
+        return;
+      }
+
+      const itemsInMonth = forecastResult.forecastItems.filter((item) => {
+        if (item.estimatedMonthIndex !== m.index) return false;
+        if (searchStudent) {
+          const q = searchStudent.toLowerCase();
+          return item.studentName.toLowerCase().includes(q) || item.subjectName.toLowerCase().includes(q);
+        }
+        return true;
+      });
+
+      const uniqueStudentsInMonth = new Set(itemsInMonth.map((i) => i.studentName.toLowerCase())).size;
+
+      // Agrupa por matéria
+      const subjectsMap = new Map<string, ForecastStudentItem[]>();
+      itemsInMonth.forEach((it) => {
+        const arr = subjectsMap.get(it.subjectName) || [];
+        arr.push(it);
+        subjectsMap.set(it.subjectName, arr);
+      });
+
+      const subjectsList = Array.from(subjectsMap.entries())
+        .map(([subjectName, students]) => ({
+          subjectName,
+          count: students.length,
+          students,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      result.push({
+        monthIndex: m.index,
+        monthLabel: m.label,
+        relativeLabel: m.relativeLabel,
+        totalWorkbooks: itemsInMonth.length,
+        uniqueStudentsCount: uniqueStudentsInMonth,
+        subjects: subjectsList,
+      });
+    });
+
+    return result;
+  }, [monthLabels, forecastResult.forecastItems, filterMonth, searchStudent]);
+
+  // Alterna expansão de uma matéria específica
+  const toggleSubjectExpanded = (key: string) => {
+    setExpandedSubjects((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
 
   // Altera aulas/semana in-place para um aluno
   const handleUpdateStudentFrequency = (studentName: string, newLessons: number) => {
@@ -251,6 +363,23 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
     showToast('Catálogo de cursos atualizado.', 'info');
   };
 
+  // Restaura o catálogo oficial com os 101 cursos de sistema_fichas.db
+  const handleResetOfficialCourses = () => {
+    showConfirm({
+      title: 'Restaurar Catálogo Oficial',
+      message: 'Deseja restaurar as durações e catálogo oficial com todos os 101 cursos extraídos de sistema_fichas.db?',
+      onConfirm: () => {
+        const official = getDefaultCourseDurations();
+        setCoursesConfig(official);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('microlins_forecast_courses', JSON.stringify(official));
+        }
+        setHasUnsavedChanges(true);
+        showToast('Catálogo oficial restaurado com 101 cursos de sistema_fichas.db!', 'success');
+      },
+    });
+  };
+
   // Adiciona novo curso customizado
   const handleAddNewCourse = () => {
     if (!newCourseName.trim()) {
@@ -284,13 +413,11 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
       setIsSavingConfig(true);
       const currentUnit = unitId || process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
-      // 1. Grava no localStorage para disponibilidade instantânea
       if (typeof window !== 'undefined') {
         localStorage.setItem('microlins_forecast_courses', JSON.stringify(coursesConfig));
         localStorage.setItem('microlins_forecast_frequencies', JSON.stringify(frequencyConfigs));
       }
 
-      // 2. Grava snapshot de auditoria no Supabase
       const payload = {
         forecast_courses: coursesConfig,
         forecast_frequencies: frequencyConfigs,
@@ -312,7 +439,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
       }
 
       setHasUnsavedChanges(false);
-      showToast('Configurações de Cursos e Frequências salvas no Supabase com sucesso!', 'success');
+      showToast('Configurações salvas no Supabase com sucesso!', 'success');
     } catch (err: any) {
       showAlert(`Erro ao salvar no banco: ${err.message}`, 'error', 'Salvar Configurações');
     } finally {
@@ -350,43 +477,43 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
     });
   }, [forecastResult.issues, issueFilterStudent, issueFilterSubject, issueFilterType]);
 
-  const monthLabels = useMemo(() => getUpcomingMonthLabels(new Date(), horizonMonths), [horizonMonths]);
+  // Cursos filtrados na sub-aba de Cursos
+  const filteredCourses = useMemo(() => {
+    if (!courseSearch) return coursesConfig;
+    const q = courseSearch.toLowerCase();
+    return coursesConfig.filter((c) => c.name.toLowerCase().includes(q));
+  }, [coursesConfig, courseSearch]);
+
+  // Resumos para os cards executivos
+  const month1Summary = forecastResult.monthlySummaries.find((m) => m.monthIndex === 1);
+  const month2Summary = forecastResult.monthlySummaries.find((m) => m.monthIndex === 2);
+  const month3Summary = forecastResult.monthlySummaries.find((m) => m.monthIndex === 3); // Daqui a 2 meses
+  const month4Summary = forecastResult.monthlySummaries.find((m) => m.monthIndex === 4);
 
   return (
     <div className="space-y-6">
       {/* Top Banner & Control Bar */}
       <div className="bg-gradient-to-r from-slate-900 via-[#0f3b7d] to-slate-900 p-5 rounded-2xl text-white shadow-md border border-slate-700/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center border border-white/20 backdrop-blur-xs shadow-inner">
+          <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center border border-white/20 backdrop-blur-xs shadow-inner shrink-0">
             <CalendarClock className="w-6 h-6 text-amber-300" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold tracking-tight">Previsão de Apostilas & Compras</h2>
+              <h2 className="text-lg font-bold tracking-tight">Previsão de Apostilas & Cronograma de Compras</h2>
               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-300/30">
                 Até 4 Meses
               </span>
             </div>
             <p className="text-xs text-slate-300">
-              Projeção cronológica com base no ritmo semanal do aluno, duração das matérias e matérias restantes.
+              Planejamento cronológico de compras para toda a escola, baseado na duração oficial dos cursos e no ritmo dos alunos.
             </p>
           </div>
         </div>
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Sincronizar com Pedido Atual */}
-          <button
-            type="button"
-            onClick={handleSyncWithOrder}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/15 transition-all shadow-xs"
-            title="Sincronizar alunos do pedido que está sendo elaborado"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-blue-200" />
-            <span>Sincronizar Pedido</span>
-          </button>
-
-          {/* Upload Específico de Planilha */}
+          {/* Input oculto para Upload Avulso */}
           <input
             type="file"
             ref={fileInputRef}
@@ -398,7 +525,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/15 transition-all shadow-xs"
-            title="Importar planilha específica (.xls / .xlsx) para esta previsão"
+            title="Importar outra planilha avulsa (.xls / .xlsx)"
           >
             <Upload className="w-3.5 h-3.5 text-emerald-300" />
             <span>{customUploadedFileName ? 'Trocar Planilha' : 'Upload Planilha'}</span>
@@ -414,7 +541,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
                 ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 animate-pulse'
                 : 'bg-emerald-600 hover:bg-emerald-700 text-white'
             }`}
-            title="Gravar durações de cursos e frequências dos alunos no banco Supabase"
+            title="Gravar durações de cursos e frequências no banco Supabase"
           >
             <Save className="w-3.5 h-3.5" />
             <span>{isSavingConfig ? 'Gravando...' : hasUnsavedChanges ? 'Salvar Configurações *' : 'Configurações Salvas'}</span>
@@ -422,23 +549,55 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
         </div>
       </div>
 
-      {customUploadedFileName && (
-        <div className="px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between text-xs text-emerald-800">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>
-              Utilizando dados importados do arquivo: <strong>{customUploadedFileName}</strong> ({sourceItems.length} registros).
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={handleSyncWithOrder}
-            className="text-xs font-semibold text-emerald-700 hover:underline"
-          >
-            Voltar para o pedido atual
-          </button>
+      {/* SELETOR DE FONTE DE DADOS DOS ALUNOS */}
+      <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2">
+          <Layers className="w-4 h-4 text-[#0f3b7d]" />
+          <span className="font-bold text-slate-700">Fonte dos Alunos para a Previsão:</span>
         </div>
-      )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Botão: Toda a Escola (Planilha Completa) */}
+          {rawRows && rawRows.length > 0 && (
+            <button
+              type="button"
+              onClick={() => handleSelectSource('full_sheet')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                sourceMode === 'full_sheet'
+                  ? 'bg-[#0f3b7d] text-white shadow-xs'
+                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <span>Toda a Escola ({rawRows.length} registros brutos)</span>
+              {sourceMode === 'full_sheet' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
+            </button>
+          )}
+
+          {/* Botão: Apenas Pedido Físico Atual */}
+          {currentOrderItems && currentOrderItems.length > 0 && (
+            <button
+              type="button"
+              onClick={() => handleSelectSource('current_order')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                sourceMode === 'current_order'
+                  ? 'bg-[#0f3b7d] text-white shadow-xs'
+                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              <span>Apenas Pedido Físico ({currentOrderItems.length} alunos aula {triggerLesson} a 6)</span>
+              {sourceMode === 'current_order' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>}
+            </button>
+          )}
+
+          {/* Badge se tiver arquivo avulso */}
+          {customUploadedFileName && (
+            <span className="px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              Arquivo Avulso: {customUploadedFileName} ({sourceItems.length} registros)
+            </span>
+          )}
+        </div>
+      </div>
 
       {/* Navigation Sub-Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
@@ -459,7 +618,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
                 activeSubTab === 'cronograma' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
               }`}
             >
-              {forecastResult.forecastItems.length}
+              {forecastResult.totalWorkbooksCount}
             </span>
           </button>
 
@@ -552,27 +711,120 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
       {/* ========================================================================= */}
       {activeSubTab === 'cronograma' && (
         <div className="space-y-6">
-          {/* Cards de Resumo por Mês */}
+          {/* RESUMO EXECUTIVO DAS 3 PERGUNTAS CHAVE */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Resposta 1: Total de Alunos Únicos com Demanda nos 4 Meses */}
+            <div className="bg-white p-4 rounded-2xl border border-blue-200 shadow-sm flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-white to-blue-50/50">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-[#0f3b7d]" />
+                  Alunos com Demanda (4 Meses)
+                </span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                  Total Único
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2 my-2">
+                <span className="text-3xl font-black text-[#0f3b7d]">{forecastResult.uniqueStudentsCount}</span>
+                <span className="text-xs text-slate-500 font-semibold">alunos únicos</span>
+              </div>
+              <div className="text-[11px] text-slate-600 border-t border-blue-100/80 pt-2 flex items-center justify-between">
+                <span>Total de apostilas projetadas:</span>
+                <strong className="text-[#0f3b7d] font-bold">{forecastResult.totalWorkbooksCount} apostilas</strong>
+              </div>
+            </div>
+
+            {/* Resposta 2: Destaque - Daqui a 2 Meses (Mês 3) */}
+            <div className="bg-white p-4 rounded-2xl border-2 border-amber-400 shadow-sm flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-amber-50/70 to-white">
+              <div className="flex items-center justify-between text-xs text-amber-900 mb-1">
+                <span className="font-bold flex items-center gap-1.5 text-amber-950">
+                  <Target className="w-4 h-4 text-amber-600" />
+                  Pedido para DAQUI A 2 MESES
+                </span>
+                <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-300 text-amber-950 shadow-xs">
+                  Mês 3 🎯
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2 my-2">
+                <span className="text-3xl font-black text-amber-800">{month3Summary?.totalWorkbooks || 0}</span>
+                <span className="text-xs text-amber-900 font-semibold">apostilas a pedir</span>
+              </div>
+              <div className="text-[11px] text-amber-900 border-t border-amber-200/80 pt-2 flex items-center justify-between">
+                <span className="truncate">{month3Summary ? month3Summary.monthLabel : 'Daqui a 2 meses'}</span>
+                <strong className="text-amber-950 font-bold shrink-0">{month3Summary?.uniqueStudentsCount || 0} alunos</strong>
+              </div>
+            </div>
+
+            {/* Card Mês 1 (Atual - Imediato) */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                <span className="font-bold text-slate-700">Mês 1 (Mês Atual)</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                  Imediato
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2 my-2">
+                <span className="text-3xl font-black text-slate-800">{month1Summary?.totalWorkbooks || 0}</span>
+                <span className="text-xs text-slate-500 font-semibold">apostilas</span>
+              </div>
+              <div className="text-[11px] text-slate-600 border-t border-slate-100 pt-2 flex items-center justify-between">
+                <span className="truncate">{month1Summary ? month1Summary.monthLabel : 'Mês Atual'}</span>
+                <strong className="text-slate-800 font-bold shrink-0">{month1Summary?.uniqueStudentsCount || 0} alunos</strong>
+              </div>
+            </div>
+
+            {/* Card Mês 2 (Daqui a 1 Mês) */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                <span className="font-bold text-slate-700">Mês 2 (Daqui a 1 mês)</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                  +4 semanas
+                </span>
+              </div>
+              <div className="flex items-baseline gap-2 my-2">
+                <span className="text-3xl font-black text-slate-800">{month2Summary?.totalWorkbooks || 0}</span>
+                <span className="text-xs text-slate-500 font-semibold">apostilas</span>
+              </div>
+              <div className="text-[11px] text-slate-600 border-t border-slate-100 pt-2 flex items-center justify-between">
+                <span className="truncate">{month2Summary ? month2Summary.monthLabel : 'Daqui a 1 mês'}</span>
+                <strong className="text-slate-800 font-bold shrink-0">{month2Summary?.uniqueStudentsCount || 0} alunos</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* Cards de Resumo Mensal Detalhados por Mês */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {forecastResult.monthlySummaries.map((summary) => (
               <div
                 key={summary.monthIndex}
-                className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex flex-col justify-between hover:border-[#0f3b7d]/50 transition-all"
+                className={`p-4 rounded-xl border shadow-2xs flex flex-col justify-between transition-all ${
+                  summary.monthIndex === 3
+                    ? 'bg-amber-50/40 border-amber-300'
+                    : 'bg-white border-slate-200 hover:border-[#0f3b7d]/50'
+                }`}
               >
                 <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                  <span className="font-semibold">{summary.monthLabel}</span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                  <span className="font-semibold text-slate-700 truncate" title={summary.monthLabel}>
+                    {summary.monthLabel}
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                      summary.monthIndex === 3
+                        ? 'bg-amber-200 text-amber-950'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
                     Mês {summary.monthIndex}
                   </span>
                 </div>
                 <div className="flex items-baseline gap-2 my-2">
                   <span className="text-2xl font-black text-[#0f3b7d]">{summary.totalWorkbooks}</span>
-                  <span className="text-xs text-slate-400 font-medium">apostilas previstas</span>
+                  <span className="text-xs text-slate-400 font-medium">apostilas ({summary.uniqueStudentsCount || 0} alunos)</span>
                 </div>
                 <div className="text-[11px] text-slate-500 border-t border-slate-100 pt-2 truncate">
                   {summary.subjectsBreakdown.length > 0 ? (
                     <span>
-                      Destaque:{' '}
+                      Maior volume:{' '}
                       <strong className="text-slate-700">
                         {summary.subjectsBreakdown[0].subject} ({summary.subjectsBreakdown[0].count})
                       </strong>
@@ -585,122 +837,342 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
             ))}
           </div>
 
-          {/* Tabela de Previsão Detalhada com Filtros */}
+          {/* BARRA DE CONTROLE: ALTERNAR ENTRE VISÃO POR MATÉRIA E VISÃO POR ALUNO */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-            {/* Table Header Controls */}
-            <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/60">
-              <div className="flex items-center gap-2 flex-1 max-w-md">
-                <div className="relative w-full">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/60">
+              {/* Seletor do Modo de Visualização */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center bg-slate-200/80 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setScheduleViewMode('subjects')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      scheduleViewMode === 'subjects'
+                        ? 'bg-[#0f3b7d] text-white shadow-xs'
+                        : 'text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    <span>Visão por Matéria (Apostilas & Alunos)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScheduleViewMode('students')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      scheduleViewMode === 'students'
+                        ? 'bg-[#0f3b7d] text-white shadow-xs'
+                        : 'text-slate-700 hover:text-slate-900'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Visão por Aluno (Lista Cronológica)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Filtro por Aluno / Matéria e Mês */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative w-full sm:w-60">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    placeholder="Filtrar por aluno ou matéria..."
+                    placeholder="Filtrar aluno ou matéria..."
                     value={searchStudent}
                     onChange={(e) => setSearchStudent(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 bg-white text-xs border border-slate-200 rounded-xl outline-none focus:border-[#0f3b7d] focus:ring-1 focus:ring-[#0f3b7d]"
+                    className="w-full pl-8 pr-3 py-1.5 bg-white text-xs border border-slate-200 rounded-xl outline-none focus:border-[#0f3b7d]"
                   />
                 </div>
 
                 <select
                   value={filterMonth}
                   onChange={(e) => setFilterMonth(e.target.value)}
-                  className="px-3 py-2 bg-white text-xs border border-slate-200 rounded-xl outline-none text-slate-700"
+                  className="px-3 py-1.5 bg-white text-xs border border-slate-200 rounded-xl outline-none text-slate-700 font-semibold"
                 >
                   <option value="all">Todos os Meses</option>
                   {monthLabels.map((m) => (
                     <option key={m.index} value={m.index}>
-                      {m.label}
+                      {m.label} ({m.relativeLabel})
                     </option>
                   ))}
                 </select>
-              </div>
 
-              {/* Botão de Exportação Excel */}
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all"
-                title="Exportar planilha Excel com Resumo Mensal por Matéria e Cronograma por Aluno"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>Exportar Excel (.xlsx)</span>
-              </button>
+                {/* Exportar Excel */}
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all"
+                  title="Exportar planilha Excel com Resumo Mensal por Matéria e Cronograma por Aluno"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Exportar Excel (.xlsx)</span>
+                </button>
+              </div>
             </div>
 
-            {/* Table Content */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100/80 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider">
-                  <tr>
-                    <th className="py-2.5 px-3 w-10 text-center">#</th>
-                    <th className="py-2.5 px-3 min-w-[220px]">Aluno</th>
-                    <th className="py-2.5 px-3 min-w-[180px]">Matéria Atual</th>
-                    <th className="py-2.5 px-3 text-center w-28">Aula / Total</th>
-                    <th className="py-2.5 px-3 text-center w-28">Aulas / Sem.</th>
-                    <th className="py-2.5 px-3 text-center w-28">Matérias Rest.</th>
-                    <th className="py-2.5 px-3 min-w-[150px]">Mês Estimado</th>
-                    <th className="py-2.5 px-3 text-center w-28">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredForecastItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="py-10 text-center text-slate-400">
-                        Nenhum aluno encontrado para os filtros selecionados.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredForecastItems.map((item, idx) => (
-                      <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">
-                          {idx + 1}
-                        </td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-800">
-                          {item.studentName}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-600">{item.subjectName}</td>
-                        <td className="py-2.5 px-3 text-center font-mono">
-                          <span className="font-bold text-[#0f3b7d]">{item.currentLesson}</span>
-                          <span className="text-slate-400"> / {item.totalLessons}</span>
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
+            {/* MODO 1: VISÃO AGRUPADA POR MATÉRIA (Quais apostilas, quantas em cada mês, quais alunos) */}
+            {scheduleViewMode === 'subjects' && (
+              <div className="p-4 space-y-6">
+                {monthlySubjectsGrouped.length === 0 || monthlySubjectsGrouped.every((m) => m.subjects.length === 0) ? (
+                  <div className="py-12 text-center text-slate-400 text-xs">
+                    Nenhuma demanda encontrada para os filtros selecionados.
+                  </div>
+                ) : (
+                  monthlySubjectsGrouped.map((mGroup) => (
+                    <div
+                      key={mGroup.monthIndex}
+                      className={`border rounded-2xl overflow-hidden ${
+                        mGroup.monthIndex === 3 ? 'border-amber-300 bg-amber-50/20' : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      {/* Cabeçalho do Mês */}
+                      <div className="p-3.5 bg-slate-100/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-[#0f3b7d] text-sm">
+                            {mGroup.monthLabel}
+                          </span>
                           <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                              item.isSpecial
-                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                                : 'bg-slate-100 text-slate-700'
+                            className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                              mGroup.monthIndex === 3
+                                ? 'bg-amber-300 text-amber-950 font-black'
+                                : 'bg-slate-200 text-slate-700'
                             }`}
                           >
-                            {item.lessonsPerWeek}x/sem
+                            {mGroup.relativeLabel}
                           </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-center font-semibold text-slate-700">
-                          {item.remainingSubjectsCount}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="font-semibold text-slate-800">{item.estimatedMonthLabel}</span>
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          {item.status === 'imediato' ? (
-                            <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-extrabold text-[10px] uppercase">
-                              Imediato
-                            </span>
-                          ) : item.status === 'projetado' ? (
-                            <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px] uppercase">
-                              Projetado
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 font-medium text-[10px]">
-                              Sem Demanda
-                            </span>
-                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                          <span className="text-slate-600">
+                            Total de Apostilas: <strong className="text-[#0f3b7d] font-black">{mGroup.totalWorkbooks}</strong>
+                          </span>
+                          <span className="text-slate-300">|</span>
+                          <span className="text-slate-600">
+                            Alunos: <strong className="text-slate-800 font-bold">{mGroup.uniqueStudentsCount}</strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Lista de Matérias deste Mês */}
+                      {mGroup.subjects.length === 0 ? (
+                        <div className="p-4 text-center text-slate-400 text-xs italic">
+                          Nenhuma apostila prevista para este mês.
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-100">
+                          {mGroup.subjects.map((subj) => {
+                            const expandKey = `m${mGroup.monthIndex}_${subj.subjectName}`;
+                            const isExpanded = !!expandedSubjects[expandKey];
+
+                            return (
+                              <div key={subj.subjectName} className="transition-colors hover:bg-slate-50/60">
+                                {/* Linha da Matéria */}
+                                <div
+                                  onClick={() => toggleSubjectExpanded(expandKey)}
+                                  className="p-3.5 flex items-center justify-between cursor-pointer select-none"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-7 h-7 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center text-[#0f3b7d]">
+                                      {isExpanded ? (
+                                        <ChevronDown className="w-4 h-4" />
+                                      ) : (
+                                        <ChevronRight className="w-4 h-4" />
+                                      )}
+                                    </div>
+                                    <div>
+                                      <h4 className="font-bold text-slate-800 text-xs flex items-center gap-2">
+                                        <span>{subj.subjectName}</span>
+                                      </h4>
+                                      <span className="text-[11px] text-slate-500">
+                                        Clique para {isExpanded ? 'ocultar' : 'ver'} os {subj.count} alunos que receberão este material
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <span className="px-3 py-1 rounded-xl bg-[#0f3b7d] text-white font-extrabold text-xs shadow-2xs">
+                                      {subj.count} {subj.count === 1 ? 'apostila' : 'apostilas'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Lista de Alunos Expandida para esta Matéria */}
+                                {isExpanded && (
+                                  <div className="px-4 pb-4 pt-1 bg-slate-50/70">
+                                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                                      <table className="w-full text-left text-xs">
+                                        <thead className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200 text-[11px]">
+                                          <tr>
+                                            <th className="py-2 px-3">Aluno</th>
+                                            <th className="py-2 px-3 text-center w-28">Aula / Total</th>
+                                            <th className="py-2 px-3 text-center w-28">Ritmo Semanal</th>
+                                            <th className="py-2 px-3 text-center w-36">Etapa</th>
+                                            <th className="py-2 px-3 text-center w-32">Semana Est.</th>
+                                            <th className="py-2 px-3 text-center w-28">Status</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                          {subj.students.map((student) => (
+                                            <tr key={student.id} className="hover:bg-slate-50">
+                                              <td className="py-2 px-3 font-semibold text-slate-800">
+                                                {student.studentName}
+                                              </td>
+                                              <td className="py-2 px-3 text-center font-mono">
+                                                <span className="font-bold text-[#0f3b7d]">{student.currentLesson}</span>
+                                                <span className="text-slate-400"> / {student.totalLessons}</span>
+                                              </td>
+                                              <td className="py-2 px-3 text-center">
+                                                <span
+                                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                                    student.isSpecial
+                                                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                                      : 'bg-slate-100 text-slate-700'
+                                                  }`}
+                                                >
+                                                  {student.lessonsPerWeek}x/sem
+                                                </span>
+                                              </td>
+                                              <td className="py-2 px-3 text-center">
+                                                {student.stage === 'atual' ? (
+                                                  <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px]">
+                                                    Matéria Atual
+                                                  </span>
+                                                ) : student.stage === 'proxima' ? (
+                                                  <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold text-[10px]">
+                                                    Próxima Matéria
+                                                  </span>
+                                                ) : (
+                                                  <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-800 font-bold text-[10px]">
+                                                    Matéria Futura
+                                                  </span>
+                                                )}
+                                              </td>
+                                              <td className="py-2 px-3 text-center text-slate-600 font-mono text-[11px]">
+                                                {student.weeksUntilNextOrder === 0
+                                                  ? 'Imediato'
+                                                  : `Em ~${student.weeksUntilNextOrder} sem.`}
+                                              </td>
+                                              <td className="py-2 px-3 text-center">
+                                                {student.status === 'imediato' ? (
+                                                  <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-black text-[10px] uppercase">
+                                                    Imediato
+                                                  </span>
+                                                ) : (
+                                                  <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px] uppercase">
+                                                    Projetado
+                                                  </span>
+                                                )}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* MODO 2: VISÃO POR ALUNO (Tabela Clássica Completa) */}
+            {scheduleViewMode === 'students' && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100/80 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+                    <tr>
+                      <th className="py-2.5 px-3 w-10 text-center">#</th>
+                      <th className="py-2.5 px-3 min-w-[200px]">Aluno</th>
+                      <th className="py-2.5 px-3 min-w-[200px]">Matéria Solicitada</th>
+                      <th className="py-2.5 px-3 text-center w-32">Etapa</th>
+                      <th className="py-2.5 px-3 text-center w-28">Aula / Total</th>
+                      <th className="py-2.5 px-3 text-center w-28">Aulas / Sem.</th>
+                      <th className="py-2.5 px-3 text-center w-28">Matérias Rest.</th>
+                      <th className="py-2.5 px-3 min-w-[180px]">Mês Estimado</th>
+                      <th className="py-2.5 px-3 text-center w-28">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredForecastItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="py-10 text-center text-slate-400">
+                          Nenhum aluno encontrado para os filtros selecionados.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    ) : (
+                      filteredForecastItems.map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">
+                            {idx + 1}
+                          </td>
+                          <td className="py-2.5 px-3 font-semibold text-slate-800">
+                            {item.studentName}
+                          </td>
+                          <td className="py-2.5 px-3 font-medium text-slate-700">
+                            {item.subjectName}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            {item.stage === 'atual' ? (
+                              <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-bold text-[10px]">
+                                Matéria Atual
+                              </span>
+                            ) : item.stage === 'proxima' ? (
+                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold text-[10px]">
+                                Próxima Matéria
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-800 font-bold text-[10px]">
+                                Matéria Futura
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-mono">
+                            <span className="font-bold text-[#0f3b7d]">{item.currentLesson}</span>
+                            <span className="text-slate-400"> / {item.totalLessons}</span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                item.isSpecial
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {item.lessonsPerWeek}x/sem
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-semibold text-slate-700">
+                            {item.remainingSubjectsCount}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="font-semibold text-slate-800">{item.estimatedMonthLabel}</span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            {item.status === 'imediato' ? (
+                              <span className="px-2 py-0.5 rounded bg-red-100 text-red-800 font-black text-[10px] uppercase">
+                                Imediato
+                              </span>
+                            ) : item.status === 'projetado' ? (
+                              <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px] uppercase">
+                                Projetado
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 font-medium text-[10px]">
+                                Sem Demanda
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -714,7 +1186,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
             <div>
               <h3 className="font-bold text-slate-800 text-sm">Frequência Semanal dos Alunos</h3>
               <p className="text-xs text-slate-500">
-                Alunos padrão realizam 2 aulas por semana. Alunos especiais (pagamento à vista ou pacotes acelerados) podem realizar até 4 aulas/semana.
+                Alunos padrão realizam 2 aulas por semana. Alunos especiais (pagamento acelerado ou pacotes VIP) realizam até 4 aulas/semana.
               </p>
             </div>
             <div className="w-full sm:w-64 relative">
@@ -731,7 +1203,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase">
+              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase text-[11px]">
                 <tr>
                   <th className="py-2.5 px-3">Aluno</th>
                   <th className="py-2.5 px-3">Matéria Atual</th>
@@ -742,6 +1214,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {forecastResult.forecastItems
+                  .filter((i, idx, arr) => arr.findIndex((x) => x.studentName === i.studentName) === idx)
                   .filter((i) => !searchStudent || i.studentName.toLowerCase().includes(searchStudent.toLowerCase()))
                   .map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
@@ -786,39 +1259,71 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
       )}
 
       {/* ========================================================================= */}
-      {/* SUB-ABA 3: CADASTRO DE CURSOS & DURAÇÃO */}
+      {/* SUB-ABA 3: CADASTRO DE CURSOS (101 CURSOS OFICIAIS DO SISTEMA_FICHAS.DB) */}
       {/* ========================================================================= */}
       {activeSubTab === 'cursos' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
             <div>
-              <h3 className="font-bold text-slate-800 text-sm">Catálogo de Cursos & Duração das Matérias</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-800 text-sm">Catálogo Oficial de Cursos & Duração das Matérias</h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
+                  {coursesConfig.length} Cursos do sistema_fichas.db
+                </span>
+              </div>
               <p className="text-xs text-slate-500">
-                O total de aulas pode ser ajustado diretamente na tabela. Cursos excluídos na lixeira são ignorados do cálculo.
+                Lista oficial extraída diretamente de <code>D:\Malone\CriaFichas\sistema_fichas.db</code>. O total de aulas pode ser ajustado diretamente na tabela.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsAddCourseModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0f3b7d] text-white text-xs font-bold hover:bg-[#1e54a4] transition-all shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Adicionar Matéria</span>
-            </button>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Botão de Restaurar Cursos Oficiais */}
+              <button
+                type="button"
+                onClick={handleResetOfficialCourses}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition-all shadow-2xs"
+                title="Restaurar o catálogo oficial padrão dos 101 cursos de sistema_fichas.db"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                <span>Restaurar Catálogo Oficial (101 Cursos)</span>
+              </button>
+
+              {/* Botão Adicionar Matéria Personalizada */}
+              <button
+                type="button"
+                onClick={() => setIsAddCourseModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0f3b7d] text-white text-xs font-bold hover:bg-[#1e54a4] transition-all shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Adicionar Matéria</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Barra de Busca de Cursos */}
+          <div className="w-full max-w-sm relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Buscar entre os 101 cursos..."
+              value={courseSearch}
+              onChange={(e) => setCourseSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 bg-slate-50 text-xs border border-slate-200 rounded-xl outline-none focus:border-[#0f3b7d]"
+            />
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase">
+              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase text-[11px]">
                 <tr>
-                  <th className="py-2.5 px-3">Curso / Matéria</th>
+                  <th className="py-2.5 px-3">Curso / Matéria Oficial</th>
                   <th className="py-2.5 px-3 text-center w-36">Total de Aulas</th>
                   <th className="py-2.5 px-3 text-center w-32">Status</th>
                   <th className="py-2.5 px-3 text-right w-24">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {coursesConfig.map((course) => (
+                {filteredCourses.map((course) => (
                   <tr
                     key={course.id}
                     className={`transition-colors ${course.active ? 'hover:bg-slate-50' : 'bg-slate-50/50 opacity-60'}`}
@@ -925,7 +1430,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase">
+              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase text-[11px]">
                 <tr>
                   <th className="py-2.5 px-3">Aluno</th>
                   <th className="py-2.5 px-3">Matéria</th>
