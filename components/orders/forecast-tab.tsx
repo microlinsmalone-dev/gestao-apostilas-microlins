@@ -23,6 +23,7 @@ import {
   Sparkles,
   RotateCcw,
   X,
+  Info,
 } from 'lucide-react';
 import {
   CourseDurationConfig,
@@ -36,6 +37,7 @@ import {
   computeStudentsForecast,
   getUpcomingMonthLabels,
 } from '../../lib/domain/forecast-engine';
+import { normalizeText } from '../../lib/domain/sanitizer';
 import { exportForecastToExcel } from '../../lib/export/excel-forecast-export';
 import { useDialog } from '../ui/dialog';
 import { supabase } from '../../lib/supabase/client';
@@ -45,9 +47,15 @@ interface ForecastTabProps {
   currentOrderItems: ProcessedStudentItem[];
   rawRows?: Record<string, unknown>[];
   unitId?: string;
+  ignoredSubjects?: string[];
 }
 
-export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: ForecastTabProps) {
+export function ForecastTab({
+  currentOrderItems,
+  rawRows = [],
+  unitId,
+  ignoredSubjects = [],
+}: ForecastTabProps) {
   const { showAlert, showConfirm, showToast } = useDialog();
 
   // Sub-abas internas da Previsão
@@ -67,11 +75,31 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
+  // Filtro por abas na sub-aba de Frequência: Todos, 1 aula, 2 aulas, 4 aulas, Personalizado
+  const [frequencyFilterTab, setFrequencyFilterTab] = useState<'all' | '1x' | '2x' | '4x' | 'custom'>('all');
+
   // Modo da fonte de dados dos alunos
   const [sourceMode, setSourceMode] = useState<'full_sheet' | 'current_order' | 'custom_file'>('full_sheet');
   const [sourceItems, setSourceItems] = useState<(ProcessedStudentItem | Record<string, unknown>)[]>([]);
   const [customUploadedFileName, setCustomUploadedFileName] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Matérias ignoradas sincronizadas com unit_settings das Configurações
+  const [syncedIgnoredSubjects, setSyncedIgnoredSubjects] = useState<string[]>(() => {
+    if (ignoredSubjects && ignoredSubjects.length > 0) return ignoredSubjects;
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('microlins_unit_settings');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed.ignored_subjects) && parsed.ignored_subjects.length > 0) {
+            return parsed.ignored_subjects;
+          }
+        }
+      } catch (e) {}
+    }
+    return ['Digitação', 'Digitacao'];
+  });
 
   // 1. Configurações de Cursos (Durações e Ativação) - Carrega os 101 cursos oficiais do sistema_fichas.db
   const [coursesConfig, setCoursesConfig] = useState<CourseDurationConfig[]>(() => {
@@ -96,12 +124,19 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
   const [newCourseDuration, setNewCourseDuration] = useState(16);
   const [isAddCourseModalOpen, setIsAddCourseModalOpen] = useState(false);
 
-  // 2. Frequência individual dos alunos (aulas/semana)
+  // 2. Frequência individual dos alunos (aulas/semana) - Normaliza chaves com normalizeText
   const [frequencyConfigs, setFrequencyConfigs] = useState<Record<string, number>>(() => {
     if (typeof window !== 'undefined') {
       try {
         const cached = localStorage.getItem('microlins_forecast_frequencies');
-        if (cached) return JSON.parse(cached);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const normalized: Record<string, number> = {};
+          for (const [k, v] of Object.entries(parsed)) {
+            normalized[normalizeText(k)] = Number(v);
+          }
+          return normalized;
+        }
       } catch (e) {}
     }
     return {};
@@ -111,6 +146,13 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
   const [issueFilterStudent, setIssueFilterStudent] = useState('');
   const [issueFilterSubject, setIssueFilterSubject] = useState('');
   const [issueFilterType, setIssueFilterType] = useState('all');
+
+  // Atualiza syncedIgnoredSubjects caso a prop ignoredSubjects seja fornecida
+  useEffect(() => {
+    if (ignoredSubjects && ignoredSubjects.length > 0) {
+      setSyncedIgnoredSubjects(ignoredSubjects);
+    }
+  }, [ignoredSubjects]);
 
   // Inicializa fonte de dados priorizando a planilha completa com todos os alunos
   useEffect(() => {
@@ -128,13 +170,32 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
     }
   }, [rawRows, currentOrderItems, sourceMode]);
 
-  // Carrega configurações persistidas do Supabase ao montar
+  // Carrega configurações persistidas do Supabase ao montar (forecast_settings e unit_settings)
   useEffect(() => {
     async function fetchSavedConfigs() {
       try {
-        const currentUnit = unitId || process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID;
+        const currentUnit = unitId || process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
         if (!currentUnit) return;
 
+        // 1. Carrega unit_settings para sincronizar matérias ignoradas cadastradas (ex: Annual Book 2)
+        const { data: unitSettingsData } = await supabase
+          .from('unit_settings')
+          .select('ignored_subjects')
+          .eq('unit_id', currentUnit)
+          .maybeSingle();
+
+        if (unitSettingsData && Array.isArray(unitSettingsData.ignored_subjects) && unitSettingsData.ignored_subjects.length > 0) {
+          setSyncedIgnoredSubjects(unitSettingsData.ignored_subjects);
+          if (typeof window !== 'undefined') {
+            try {
+              const currentCache = JSON.parse(localStorage.getItem('microlins_unit_settings') || '{}');
+              currentCache.ignored_subjects = unitSettingsData.ignored_subjects;
+              localStorage.setItem('microlins_unit_settings', JSON.stringify(currentCache));
+            } catch (e) {}
+          }
+        }
+
+        // 2. Carrega configurações da previsão
         const { data } = await supabase
           .from('audit_logs')
           .select('metadata')
@@ -150,7 +211,11 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
             setCoursesConfig(raw.forecast_courses);
           }
           if (raw.forecast_frequencies && typeof raw.forecast_frequencies === 'object') {
-            setFrequencyConfigs(raw.forecast_frequencies);
+            const normalizedFreqs: Record<string, number> = {};
+            for (const [k, v] of Object.entries(raw.forecast_frequencies)) {
+              normalizedFreqs[normalizeText(k)] = Number(v);
+            }
+            setFrequencyConfigs(normalizedFreqs);
           }
         }
       } catch (err) {
@@ -173,7 +238,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
           lessonMin: 1,
           lessonMax: 99,
           allLessons: true,
-          ignoredSubjects: ['Digitação', 'Digitacao'],
+          ignoredSubjects: syncedIgnoredSubjects,
           excludedContractTypes: ['Bolsista'],
         });
 
@@ -231,8 +296,9 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
       frequencyConfigs,
       triggerLesson,
       horizonMonths,
+      ignoredSubjects: syncedIgnoredSubjects,
     });
-  }, [sourceItems, rawRows, currentOrderItems, coursesConfig, frequencyConfigs, triggerLesson, horizonMonths]);
+  }, [sourceItems, rawRows, currentOrderItems, coursesConfig, frequencyConfigs, triggerLesson, horizonMonths, syncedIgnoredSubjects]);
 
   // Rótulos amigáveis dos meses (Mês 1 Atual, Daqui a 1 mês, Daqui a 2 meses, Daqui a 3 meses)
   const monthLabels = useMemo(() => getUpcomingMonthLabels(new Date(), horizonMonths), [horizonMonths]);
@@ -254,6 +320,57 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
       return true;
     });
   }, [forecastResult.forecastItems, searchStudent, filterMonth]);
+
+  // Lista única de alunos para a sub-aba de Frequência, isolando formações distintas (ex: Caleb com 2 contratos)
+  const frequencyStudentsList = useMemo(() => {
+    const map = new Map<string, ForecastStudentItem>();
+    forecastResult.forecastItems.forEach((item) => {
+      const key = `${normalizeText(item.studentName)}:::${normalizeText(item.courseName || '')}`;
+      if (!map.has(key)) {
+        map.set(key, item);
+      }
+    });
+    return Array.from(map.values());
+  }, [forecastResult.forecastItems]);
+
+  // Contadores dinâmicos para as abas de frequência
+  const frequencyCounts = useMemo(() => {
+    let count1x = 0;
+    let count2x = 0;
+    let count4x = 0;
+    let countCustom = 0;
+
+    frequencyStudentsList.forEach((s) => {
+      if (s.lessonsPerWeek === 1) count1x++;
+      else if (s.lessonsPerWeek === 2) count2x++;
+      else if (s.lessonsPerWeek === 4) count4x++;
+      else countCustom++;
+    });
+
+    return {
+      all: frequencyStudentsList.length,
+      count1x,
+      count2x,
+      count4x,
+      countCustom,
+    };
+  }, [frequencyStudentsList]);
+
+  // Alunos filtrados pela aba de frequência selecionada
+  const filteredFrequencyStudents = useMemo(() => {
+    return frequencyStudentsList.filter((item) => {
+      if (searchStudent && !item.studentName.toLowerCase().includes(searchStudent.toLowerCase())) {
+        return false;
+      }
+      if (frequencyFilterTab === '1x') return item.lessonsPerWeek === 1;
+      if (frequencyFilterTab === '2x') return item.lessonsPerWeek === 2;
+      if (frequencyFilterTab === '4x') return item.lessonsPerWeek === 4;
+      if (frequencyFilterTab === 'custom') {
+        return item.lessonsPerWeek !== 1 && item.lessonsPerWeek !== 2 && item.lessonsPerWeek !== 4;
+      }
+      return true;
+    });
+  }, [frequencyStudentsList, searchStudent, frequencyFilterTab]);
 
   // Agrupamento por Mês e por Matéria para responder: "Quais apostilas, quantas em cada mês, quais alunos?"
   const monthlySubjectsGrouped = useMemo(() => {
@@ -324,11 +441,16 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
     }));
   };
 
-  // Altera aulas/semana in-place para um aluno
-  const handleUpdateStudentFrequency = (studentName: string, newLessons: number) => {
-    const norm = studentName.trim().toLowerCase();
+  // Altera aulas/semana in-place para um aluno com chave normalizada (elimina falhas com acentos)
+  const handleUpdateStudentFrequency = (studentName: string, newLessons: number, courseName?: string) => {
+    const studentKey = normalizeText(studentName);
+    const specificKey = courseName ? `${studentKey}:::${normalizeText(courseName)}` : studentKey;
     setFrequencyConfigs((prev) => {
-      const updated = { ...prev, [norm]: newLessons };
+      const updated = {
+        ...prev,
+        [studentKey]: newLessons,
+        ...(courseName ? { [specificKey]: newLessons } : {}),
+      };
       if (typeof window !== 'undefined') {
         localStorage.setItem('microlins_forecast_frequencies', JSON.stringify(updated));
       }
@@ -525,10 +647,10 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/15 transition-all shadow-xs"
-            title="Importar outra planilha avulsa (.xls / .xlsx)"
+            title="Importar outra planilha avulsa (.xls / .xlsx - Controle Pedagógico ou Entrega de Apostila) para simular previsão"
           >
             <Upload className="w-3.5 h-3.5 text-emerald-300" />
-            <span>{customUploadedFileName ? 'Trocar Planilha' : 'Upload Planilha'}</span>
+            <span>{customUploadedFileName ? 'Trocar Planilha Avulsa' : 'Upload Planilha Avulsa'}</span>
           </button>
 
           {/* Salvar Configurações no Banco */}
@@ -550,10 +672,16 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
       </div>
 
       {/* SELETOR DE FONTE DE DADOS DOS ALUNOS */}
-      <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-2">
-          <Layers className="w-4 h-4 text-[#0f3b7d]" />
-          <span className="font-bold text-slate-700">Fonte dos Alunos para a Previsão:</span>
+      <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-[#0f3b7d]" />
+            <span className="font-bold text-slate-700">Fonte dos Alunos para a Previsão:</span>
+          </div>
+          <div className="text-[11px] text-slate-500 flex items-center gap-1">
+            <Info className="w-3.5 h-3.5 text-[#0f3b7d] shrink-0" />
+            <span>Utiliza a planilha completa do Passo 1. O botão &quot;Upload Planilha Avulsa&quot; serve para testar outras planilhas sem alterar o pedido.</span>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1012,8 +1140,13 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
                                         <tbody className="divide-y divide-slate-100">
                                           {subj.students.map((student) => (
                                             <tr key={student.id} className="hover:bg-slate-50">
-                                              <td className="py-2 px-3 font-semibold text-slate-800">
-                                                {student.studentName}
+                                              <td className="py-2 px-3">
+                                                <div className="font-semibold text-slate-800">{student.studentName}</div>
+                                                {student.courseName && (
+                                                  <div className="text-[10px] text-slate-500 font-medium">
+                                                    Formação: {student.courseName}
+                                                  </div>
+                                                )}
                                               </td>
                                               <td className="py-2 px-3 text-center font-mono">
                                                 <span className="font-bold text-[#0f3b7d]">{student.currentLesson}</span>
@@ -1108,8 +1241,13 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
                           <td className="py-2.5 px-3 font-semibold text-slate-800">
                             {item.studentName}
                           </td>
-                          <td className="py-2.5 px-3 font-medium text-slate-700">
-                            {item.subjectName}
+                          <td className="py-2.5 px-3">
+                            <div className="font-semibold text-slate-800">{item.subjectName}</div>
+                            {item.courseName && (
+                              <div className="text-[10px] text-slate-500 font-medium">
+                                Formação: {item.courseName}
+                              </div>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             {item.stage === 'atual' ? (
@@ -1178,7 +1316,7 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
             <div>
               <h3 className="font-bold text-slate-800 text-sm">Frequência Semanal dos Alunos</h3>
               <p className="text-xs text-slate-500">
-                Alunos padrão realizam 2 aulas por semana. Alunos especiais (pagamento acelerado ou pacotes VIP) realizam até 4 aulas/semana.
+                Selecione ou digite a quantidade de aulas semanais de cada aluno. As alterações ficam salvas para futuras importações.
               </p>
             </div>
             <div className="w-full sm:w-64 relative">
@@ -1193,6 +1331,39 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
             </div>
           </div>
 
+          {/* Abas de Filtragem de Frequência */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 pb-3">
+            {[
+              { id: 'all', label: 'Todos', count: frequencyCounts.all },
+              { id: '1x', label: '1 aula na semana', count: frequencyCounts.count1x },
+              { id: '2x', label: '2 aulas na semana', count: frequencyCounts.count2x },
+              { id: '4x', label: '4 aulas na semana', count: frequencyCounts.count4x },
+              { id: 'custom', label: 'Personalizado', count: frequencyCounts.countCustom },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setFrequencyFilterTab(tab.id as any)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  frequencyFilterTab === tab.id
+                    ? 'bg-[#0f3b7d] text-white shadow-xs'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                    frequencyFilterTab === tab.id
+                      ? 'bg-white/20 text-white'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase text-[11px]">
@@ -1200,29 +1371,38 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
                   <th className="py-2.5 px-3">Aluno</th>
                   <th className="py-2.5 px-3">Matéria Atual</th>
                   <th className="py-2.5 px-3 text-center">Aula Atual</th>
-                  <th className="py-2.5 px-3 text-center min-w-[200px]">Aulas por Semana</th>
+                  <th className="py-2.5 px-3 text-center min-w-[280px]">Aulas por Semana</th>
                   <th className="py-2.5 px-3 text-center">Classificação</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {forecastResult.forecastItems
-                  .filter((i, idx, arr) => arr.findIndex((x) => x.studentName === i.studentName) === idx)
-                  .filter((i) => !searchStudent || i.studentName.toLowerCase().includes(searchStudent.toLowerCase()))
-                  .map((item) => (
+                {filteredFrequencyStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-slate-400">
+                      Nenhum aluno encontrado nesta aba de frequência.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredFrequencyStudents.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-2 px-3 font-semibold text-slate-800">{item.studentName}</td>
-                      <td className="py-2 px-3 text-slate-600">{item.subjectName}</td>
+                      <td className="py-2 px-3">
+                        <div className="font-semibold text-slate-800">{item.subjectName}</div>
+                        {item.courseName && (
+                          <div className="text-[10px] text-slate-500 font-medium">Formação: {item.courseName}</div>
+                        )}
+                      </td>
                       <td className="py-2 px-3 text-center font-bold text-[#0f3b7d]">{item.currentLesson}</td>
                       <td className="py-2 px-3 text-center">
-                        <div className="inline-flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-                          {[1, 2, 3, 4].map((num) => (
+                        <div className="inline-flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                          {[1, 2, 4].map((num) => (
                             <button
                               key={num}
                               type="button"
-                              onClick={() => handleUpdateStudentFrequency(item.studentName, num)}
-                              className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${
+                              onClick={() => handleUpdateStudentFrequency(item.studentName, num, item.courseName)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
                                 item.lessonsPerWeek === num
-                                  ? num > 2
+                                  ? num === 4
                                     ? 'bg-amber-500 text-slate-950 shadow-xs'
                                     : 'bg-[#0f3b7d] text-white shadow-xs'
                                   : 'text-slate-600 hover:bg-slate-200'
@@ -1231,19 +1411,41 @@ export function ForecastTab({ currentOrderItems, rawRows = [], unitId }: Forecas
                               {num}x
                             </button>
                           ))}
+                          <div className="flex items-center gap-1 pl-1.5 border-l border-slate-300">
+                            <input
+                              type="number"
+                              min="1"
+                              max="20"
+                              value={item.lessonsPerWeek}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value, 10);
+                                if (!isNaN(val) && val >= 1) {
+                                  handleUpdateStudentFrequency(item.studentName, val, item.courseName);
+                                }
+                              }}
+                              className="w-12 px-1.5 py-0.5 text-center text-xs font-bold bg-white border border-slate-300 rounded-md outline-none focus:border-[#0f3b7d]"
+                              title="Digite qualquer quantidade de aulas por semana"
+                            />
+                            <span className="text-[10px] font-bold text-slate-500">aulas/sem</span>
+                          </div>
                         </div>
                       </td>
                       <td className="py-2 px-3 text-center">
-                        {item.isSpecial ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
-                            Aluno Especial ({item.lessonsPerWeek}x/sem)
+                        {item.lessonsPerWeek === 2 ? (
+                          <span className="text-slate-400 text-xs font-medium">Padrão (2x)</span>
+                        ) : item.lessonsPerWeek === 1 ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
+                            1 aula/semana
                           </span>
                         ) : (
-                          <span className="text-slate-400 text-xs">Padrão (2x)</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                            Ritmo Especial ({item.lessonsPerWeek}x/sem)
+                          </span>
                         )}
                       </td>
                     </tr>
-                  ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>

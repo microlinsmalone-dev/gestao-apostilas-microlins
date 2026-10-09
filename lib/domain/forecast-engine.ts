@@ -16,6 +16,7 @@ import {
   CURSOS_OFICIAIS_SISTEMA_FICHAS,
   getCursosOficiaisSistemaFichas,
 } from './cursos-oficiais';
+import { isSubjectIgnored } from './filters';
 
 /**
  * Matérias ignoradas por padrão (sem apostila física padrão)
@@ -27,6 +28,52 @@ export const IGNORED_FORECAST_SUBJECTS = [
   'Ingles',
   'English',
 ];
+
+/**
+ * Verifica se uma matéria ou curso deve ser ignorado na previsão,
+ * combinando a lista padrão com as configurações de unit_settings.
+ */
+export function isForecastSubjectIgnored(
+  rawSubject: string,
+  courseName?: string,
+  customIgnored: string[] = []
+): boolean {
+  if (!rawSubject || !rawSubject.trim()) return false;
+  const normRaw = normalizeText(rawSubject);
+  const normCourse = normalizeText(courseName || '');
+
+  // 1. Matérias estáticas padrão (Digitação / Inglês)
+  for (const ign of IGNORED_FORECAST_SUBJECTS) {
+    const ignNorm = normalizeText(ign);
+    if (normRaw.includes(ignNorm) || normCourse.includes(ignNorm)) return true;
+  }
+
+  // 2. Matérias cadastradas pelo usuário em unit_settings (ex: Annual Book 2, etc.)
+  if (customIgnored && customIgnored.length > 0) {
+    if (isSubjectIgnored(rawSubject, courseName, customIgnored)) {
+      return true;
+    }
+
+    // Normalização flexível adicional para variantes como "Part A" vs "Parte A"
+    const subjFlexible = normRaw.replace(/\bpart\b/g, 'parte');
+    const courseFlexible = normCourse.replace(/\bpart\b/g, 'parte');
+
+    for (const item of customIgnored) {
+      const itemNorm = normalizeText(item);
+      if (!itemNorm) continue;
+      const itemFlexible = itemNorm.replace(/\bpart\b/g, 'parte');
+      if (
+        subjFlexible.includes(itemFlexible) ||
+        courseFlexible.includes(itemFlexible) ||
+        itemFlexible.includes(subjFlexible)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 /**
  * Cursos comportamentais válidos
@@ -60,7 +107,7 @@ export function getDefaultCourseDurations(): CourseDurationConfig[] {
 }
 
 /**
- * Limpa o nome da matéria removendo prefixo numérico (ex: 161870_) e marcadores de turma
+ * Limpa o nome da matéria ou formação removendo prefixo numérico (ex: 161870_) e marcadores de turma
  */
 export function sanitizeRawSubject(raw: string): string {
   if (!raw) return '';
@@ -77,10 +124,12 @@ export function sanitizeRawSubject(raw: string): string {
  */
 export function isValidForecastSubject(
   rawSubject: string,
-  catalog: CourseDurationConfig[] = CURSOS_OFICIAIS_SISTEMA_FICHAS
+  catalog: CourseDurationConfig[] = CURSOS_OFICIAIS_SISTEMA_FICHAS,
+  customIgnored: string[] = []
 ): {
   valid: boolean;
   cleanName: string;
+  isIgnored?: boolean;
   reason?: string;
 } {
   if (!rawSubject || !rawSubject.trim()) {
@@ -88,13 +137,15 @@ export function isValidForecastSubject(
   }
 
   const raw = rawSubject.trim();
-  const normRaw = normalizeText(raw);
 
-  // Ignora Digitação e Inglês
-  for (const ignored of IGNORED_FORECAST_SUBJECTS) {
-    if (normRaw.includes(normalizeText(ignored))) {
-      return { valid: false, cleanName: raw, reason: 'Matéria excluída (Inglês/Digitação)' };
-    }
+  // Verifica se é matéria excluída/ignorada
+  if (isForecastSubjectIgnored(raw, undefined, customIgnored)) {
+    return {
+      valid: false,
+      cleanName: raw,
+      isIgnored: true,
+      reason: 'Matéria excluída (Configurações / Digitação / Inglês)',
+    };
   }
 
   const cleaned = sanitizeRawSubject(raw);
@@ -277,10 +328,11 @@ export function getUpcomingMonthLabels(
 export function computeStudentsForecast(params: {
   rawOrProcessedItems: (ProcessedStudentItem | Record<string, unknown>)[];
   coursesConfig: CourseDurationConfig[];
-  frequencyConfigs: Record<string, number>; // aluno -> aulas por semana (1 a 4)
+  frequencyConfigs: Record<string, number>; // aluno -> aulas por semana (1, 2, 4, ou custom)
   triggerLesson?: number; // padrão 4
   horizonMonths?: number; // 1 a 4 meses
   referenceDate?: Date;
+  ignoredSubjects?: string[]; // matérias ignoradas das configurações
 }): {
   forecastItems: ForecastStudentItem[];
   monthlySummaries: ForecastMonthlySummary[];
@@ -291,10 +343,11 @@ export function computeStudentsForecast(params: {
   const {
     rawOrProcessedItems,
     coursesConfig = CURSOS_OFICIAIS_SISTEMA_FICHAS,
-    frequencyConfigs,
+    frequencyConfigs = {},
     triggerLesson = 4,
     horizonMonths = 4,
     referenceDate = new Date(),
+    ignoredSubjects = [],
   } = params;
 
   const monthLabels = getUpcomingMonthLabels(referenceDate, horizonMonths);
@@ -324,7 +377,7 @@ export function computeStudentsForecast(params: {
 
   const uniqueStudentsGlobal = new Set<string>();
 
-  // 1. Agrupa os registros por aluno para isolar a grade curricular e evitar falsos positivos
+  // 1. Agrupa os registros por aluno e formação para isolar a grade curricular e suportar múltiplos contratos (ex: CALEB)
   const studentRowsMap = new Map<
     string,
     {
@@ -378,25 +431,36 @@ export function computeStudentsForecast(params: {
     }
 
     const educatorName = String((row as any).educatorName || (row as any)['Educador'] || '').trim();
-    const courseName = String((row as any).courseName || (row as any)['Formação'] || (row as any)['Formacao'] || '').trim();
+    const courseNameRaw = String(
+      (row as any).courseName ||
+        (row as any)['Formação'] ||
+        (row as any)['Formacao'] ||
+        (row as any)['Curso'] ||
+        ''
+    ).trim();
+    const cleanCourse = sanitizeRawSubject(courseNameRaw);
 
     const studentKey = normalizeText(studentName);
-    const existing = studentRowsMap.get(studentKey);
+    // Para alunos com mais de 1 contrato/formação (ex: CALEB com Informática e Games),
+    // agrupamos por aluno + formação para garantir que cada contrato tenha sua grade independente!
+    const trackKey = cleanCourse ? `${studentKey}:::${normalizeText(cleanCourse)}` : studentKey;
+
+    const existing = studentRowsMap.get(trackKey);
     if (existing) {
       existing.rows.push(row);
       if (!existing.educatorName && educatorName) existing.educatorName = educatorName;
-      if (!existing.courseName && courseName) existing.courseName = courseName;
+      if (!existing.courseName && cleanCourse) existing.courseName = cleanCourse;
     } else {
-      studentRowsMap.set(studentKey, {
+      studentRowsMap.set(trackKey, {
         studentName,
         educatorName,
-        courseName,
+        courseName: cleanCourse,
         rows: [row],
       });
     }
   });
 
-  // 2. Itera sobre cada aluno único identificando sua matéria em andamento real
+  // 2. Itera sobre cada aluno e contrato identificando sua matéria em andamento real
   let studentIdx = 0;
   studentRowsMap.forEach(({ studentName, educatorName, courseName, rows }) => {
     studentIdx++;
@@ -412,6 +476,15 @@ export function computeStudentsForecast(params: {
             r['Curso'] ||
             ''
         ).trim();
+
+        const rowCourseRaw = String(
+          r.courseName ||
+            r['Formação'] ||
+            r['Formacao'] ||
+            r['Curso'] ||
+            ''
+        ).trim();
+        const rowCourseName = sanitizeRawSubject(rowCourseRaw) || courseName;
 
         const currentLessonRaw =
           r.currentLesson ??
@@ -452,6 +525,7 @@ export function computeStudentsForecast(params: {
         return {
           originalRow: r,
           rawSubject,
+          courseName: rowCourseName,
           currentLesson,
           hasDate,
           dtInicioRaw,
@@ -461,11 +535,14 @@ export function computeStudentsForecast(params: {
           rIdx,
         };
       })
-      .filter(
-        (r) =>
-          r.rawSubject &&
-          !IGNORED_FORECAST_SUBJECTS.some((i) => normalizeText(r.rawSubject).includes(normalizeText(i)))
-      );
+      .filter((r) => {
+        if (!r.rawSubject) return false;
+        // Filtra matérias ignoradas das configurações e padrões sem gerar demanda
+        if (isForecastSubjectIgnored(r.rawSubject, r.courseName, ignoredSubjects)) {
+          return false;
+        }
+        return true;
+      });
 
     if (parsedRows.length === 0) return;
 
@@ -484,9 +561,15 @@ export function computeStudentsForecast(params: {
       unstartedRows = unstartedRows.slice(1);
     }
 
-    // Frequência semanal configurada para o aluno
-    const configuredFreq = frequencyConfigs[normalizeText(studentName)];
-    const lessonsPerWeek = configuredFreq && configuredFreq >= 1 && configuredFreq <= 4 ? configuredFreq : 2;
+    // Frequência semanal configurada para o aluno (com fallback para chave geral)
+    const studentKey = normalizeText(studentName);
+    const courseKey = courseName ? normalizeText(courseName) : '';
+    const configuredFreq =
+      (courseKey && frequencyConfigs[`${studentKey}:::${courseKey}`]) ||
+      frequencyConfigs[studentKey];
+
+    // Permite qualquer valor positivo configurado (1, 2, 4 ou número livre no personalizado)
+    const lessonsPerWeek = configuredFreq && configuredFreq >= 1 ? configuredFreq : 2;
     const isSpecial = lessonsPerWeek > 2;
 
     const remainingCount = unstartedRows.length > 0 ? unstartedRows.length : (activeRows[0]?.explicitRemaining ?? 0);
@@ -512,8 +595,9 @@ export function computeStudentsForecast(params: {
       mSlot.subjects[subjName] = (mSlot.subjects[subjName] || 0) + 1;
       uniqueStudentsGlobal.add(studentName);
 
+      const courseKeyPart = normalizeText(courseName || 'c').replace(/\s+/g, '_').slice(0, 8);
       forecastItems.push({
-        id: `fc_${studentIdx}_${normalizeText(studentName).replace(/\s+/g, '_')}_m${targetMonthIndex}_${stage}_${normalizeText(subjName).slice(0, 10)}`,
+        id: `fc_${studentIdx}_${normalizeText(studentName).replace(/\s+/g, '_')}_${courseKeyPart}_m${targetMonthIndex}_${stage}_${normalizeText(subjName).slice(0, 10)}`,
         studentName,
         subjectName: subjName,
         courseName,
@@ -537,7 +621,16 @@ export function computeStudentsForecast(params: {
 
     // Para cada matéria em andamento real do aluno:
     activeRows.forEach((actRow) => {
-      const subjectValidation = isValidForecastSubject(actRow.rawSubject, coursesConfig);
+      // Se for matéria ignorada nas configurações, ignora silenciosamente sem adicionar a pendências
+      if (isForecastSubjectIgnored(actRow.rawSubject, actRow.courseName, ignoredSubjects)) {
+        return;
+      }
+
+      const subjectValidation = isValidForecastSubject(actRow.rawSubject, coursesConfig, ignoredSubjects);
+      if (subjectValidation.isIgnored) {
+        return;
+      }
+
       if (!subjectValidation.valid) {
         issues.push({
           id: `issue_${studentIdx}_${actRow.rIdx}`,
@@ -545,7 +638,7 @@ export function computeStudentsForecast(params: {
           subjectName: actRow.rawSubject,
           issueType: 'missing_subject',
           description: subjectValidation.reason || 'Matéria não reconhecida no catálogo oficial',
-          solutionTip: 'Verifique no Cadastro de Cursos se a matéria está ativa.',
+          solutionTip: 'Verifique no Cadastro de Cursos se a matéria está ativa ou adicione-a em Matérias Ignoradas nas Configurações.',
         });
         return;
       }
@@ -606,15 +699,23 @@ export function computeStudentsForecast(params: {
 
           // 1. Tenta a próxima matéria informada explicitamente
           if (actRow.nextSubjectRaw) {
-            const nextVal = isValidForecastSubject(actRow.nextSubjectRaw, coursesConfig);
-            nextSubjName = nextVal.valid ? nextVal.cleanName : sanitizeRawSubject(actRow.nextSubjectRaw);
+            const nextVal = isValidForecastSubject(actRow.nextSubjectRaw, coursesConfig, ignoredSubjects);
+            if (!nextVal.isIgnored) {
+              nextSubjName = nextVal.valid ? nextVal.cleanName : sanitizeRawSubject(actRow.nextSubjectRaw);
+            }
           }
 
           // 2. Tenta a 1ª matéria não iniciada da grade curricular do contrato
           if (!nextSubjName && unstartedRows.length > 0) {
-            const unstartedCandidate = unstartedRows[0].rawSubject;
-            const nextVal = isValidForecastSubject(unstartedCandidate, coursesConfig);
-            nextSubjName = nextVal.valid ? nextVal.cleanName : sanitizeRawSubject(unstartedCandidate);
+            const candidate = unstartedRows.find(
+              (u) => !isForecastSubjectIgnored(u.rawSubject, u.courseName, ignoredSubjects)
+            );
+            if (candidate) {
+              const nextVal = isValidForecastSubject(candidate.rawSubject, coursesConfig, ignoredSubjects);
+              if (!nextVal.isIgnored) {
+                nextSubjName = nextVal.valid ? nextVal.cleanName : sanitizeRawSubject(candidate.rawSubject);
+              }
+            }
           }
 
           // 3. Tenta resolução sequencial lógica (ex: Módulo I -> Módulo II)

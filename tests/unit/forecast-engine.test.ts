@@ -246,4 +246,158 @@ describe('Motor de Previsão de Apostilas & Cronograma de Compras', () => {
     const hasWord = result.forecastItems.some((i) => i.subjectName.includes('Word'));
     expect(hasWord).toBe(false);
   });
+
+  it('deve sincronizar e filtrar matérias ignoradas das configurações (ex: Annual Book 2) sem gerar falso alerta de pendência', () => {
+    const catalog = getDefaultCourseDurations();
+    const mockStudents = [
+      {
+        studentName: 'Ana Beatriz Santos Nogueira',
+        rawSubjectName: 'Annual Book 2',
+        currentLesson: 4,
+        physicalDelivery: 'Não',
+      },
+      {
+        studentName: 'NICOLY SIQUEIRA LIMA',
+        rawSubjectName: 'Annual Book 2 - Part A',
+        currentLesson: 4,
+        physicalDelivery: 'Não',
+      },
+      {
+        studentName: 'Aluno Valido',
+        rawSubjectName: '161870_Word 2021',
+        currentLesson: 4,
+        physicalDelivery: 'Não',
+      },
+    ];
+
+    const ignoredSubjects = [
+      'Digitação',
+      'Annual Book 2',
+      'Annual Book 2 - Parte A',
+      'Annual Book 2 - Parte B',
+    ];
+
+    const result = computeStudentsForecast({
+      rawOrProcessedItems: mockStudents,
+      coursesConfig: catalog,
+      frequencyConfigs: {},
+      triggerLesson: 4,
+      horizonMonths: 4,
+      ignoredSubjects,
+    });
+
+    // Ana Beatriz e Nicoly não devem gerar demanda de apostila
+    expect(result.uniqueStudentsCount).toBe(1);
+    expect(result.forecastItems.length).toBe(1);
+    expect(result.forecastItems[0].studentName).toBe('Aluno Valido');
+
+    // NENHUMA pendência deve ser gerada para Annual Book 2 ou Annual Book 2 - Part A!
+    expect(result.issues.length).toBe(0);
+  });
+
+  it('deve alterar a frequência semanal de alunos com nomes acentuados como JOÃO LUCAS DELLA COLETTA e suportar ritmo personalizado', () => {
+    const catalog = getDefaultCourseDurations();
+    const mockStudents = [
+      {
+        studentName: 'JOÃO LUCAS DELLA COLETTA',
+        rawSubjectName: 'Robótica - Módulo II',
+        currentLesson: 4,
+        physicalDelivery: 'Não',
+      },
+      {
+        studentName: 'Aluno Personalizado 3x',
+        rawSubjectName: '161870_Word 2021',
+        currentLesson: 2,
+        physicalDelivery: 'Não',
+      },
+    ];
+
+    // Frequências indexadas por texto normalizado
+    const frequencyConfigs = {
+      'joao lucas della coletta': 4,
+      'aluno personalizado 3x': 3,
+    };
+
+    const result = computeStudentsForecast({
+      rawOrProcessedItems: mockStudents,
+      coursesConfig: catalog,
+      frequencyConfigs,
+      triggerLesson: 4,
+      horizonMonths: 4,
+    });
+
+    const joao = result.forecastItems.find((i) => i.studentName === 'JOÃO LUCAS DELLA COLETTA');
+    expect(joao).toBeDefined();
+    expect(joao?.lessonsPerWeek).toBe(4);
+    expect(joao?.isSpecial).toBe(true);
+
+    const personalizado = result.forecastItems.find((i) => i.studentName === 'Aluno Personalizado 3x');
+    expect(personalizado).toBeDefined();
+    expect(personalizado?.lessonsPerWeek).toBe(3);
+    expect(personalizado?.isSpecial).toBe(true);
+  });
+
+  it('deve separar formações distintas para alunos com múltiplos contratos como CALEB JOSUÉ MEDRADO MAMANI', () => {
+    const catalog = getDefaultCourseDurations();
+    const mockCalebMultiContract = [
+      // Contrato 1: Informática
+      {
+        studentName: 'CALEB JOSUÉ MEDRADO MAMANI',
+        courseName: '26760_INFORMÁTICA ESSENCIAL [DINÂMICA]',
+        rawSubjectName: '161876_Internet, Redes Sociais e Aplicativos',
+        currentLesson: 8,
+        startDate: '2026-02-01',
+        physicalDelivery: 'Sim', // já tem dessa
+      },
+      {
+        studentName: 'CALEB JOSUÉ MEDRADO MAMANI',
+        courseName: '26760_INFORMÁTICA ESSENCIAL [DINÂMICA]',
+        rawSubjectName: '161871_Excel 2021',
+        currentLesson: 1,
+        startDate: '', // não iniciada
+        physicalDelivery: 'Não',
+      },
+      // Contrato 2: Games
+      {
+        studentName: 'CALEB JOSUÉ MEDRADO MAMANI',
+        courseName: '26801_DESENVOLVIMENTO DE GAMES [DINÂMICA]',
+        rawSubjectName: '161857_Adobe Photoshop - Creative Cloud - Módulo I',
+        currentLesson: 10,
+        startDate: '2026-02-01',
+        physicalDelivery: 'Sim', // já tem dessa
+      },
+      {
+        studentName: 'CALEB JOSUÉ MEDRADO MAMANI',
+        courseName: '26801_DESENVOLVIMENTO DE GAMES [DINÂMICA]',
+        rawSubjectName: '161858_Adobe Photoshop - Creative Cloud - Módulo II',
+        currentLesson: 1,
+        startDate: '', // não iniciada
+        physicalDelivery: 'Não',
+      },
+    ];
+
+    const result = computeStudentsForecast({
+      rawOrProcessedItems: mockCalebMultiContract,
+      coursesConfig: catalog,
+      frequencyConfigs: {},
+      triggerLesson: 4,
+      horizonMonths: 4,
+    });
+
+    // Caleb conta como 1 único aluno na escola
+    expect(result.uniqueStudentsCount).toBe(1);
+
+    // Deve ter previsão para a próxima matéria de Informática E para a próxima matéria de Games
+    const proximaInformatica = result.forecastItems.find(
+      (i) => i.courseName === 'INFORMÁTICA ESSENCIAL' && i.stage === 'proxima'
+    );
+    expect(proximaInformatica).toBeDefined();
+    expect(proximaInformatica?.subjectName).toBe('Excel 2021');
+
+    const proximaGames = result.forecastItems.find(
+      (i) => i.courseName === 'DESENVOLVIMENTO DE GAMES' && i.stage === 'proxima'
+    );
+    expect(proximaGames).toBeDefined();
+    expect(proximaGames?.subjectName).toBe('Adobe Photoshop - Creative Cloud - Módulo II');
+  });
 });

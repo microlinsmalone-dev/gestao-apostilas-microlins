@@ -1583,7 +1583,12 @@ export default function NovaOrdemPage() {
           </div>
 
           {activeCategoryTab === 'forecast' ? (
-            <ForecastTab currentOrderItems={items} rawRows={rawRows} />
+            <ForecastTab
+              currentOrderItems={items}
+              rawRows={rawRows}
+              unitId={process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'}
+              ignoredSubjects={ignoredSubjects}
+            />
           ) : (
             <>
               {/* Abas de Filtragem Rápida por Educador (Separação Rápida de Pedidos) */}
