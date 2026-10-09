@@ -323,24 +323,24 @@ export function computeStudentsForecast(params: {
   });
 
   const uniqueStudentsGlobal = new Set<string>();
-  const processedKeys = new Set<string>();
 
-  rawOrProcessedItems.forEach((row, idx) => {
-    // 1. Extração segura dos campos
+  // 1. Agrupa os registros por aluno para isolar a grade curricular e evitar falsos positivos
+  const studentRowsMap = new Map<
+    string,
+    {
+      studentName: string;
+      educatorName: string;
+      courseName: string;
+      rows: any[];
+    }
+  >();
+
+  rawOrProcessedItems.forEach((row) => {
     const studentName = String(
       (row as any).studentName ||
         (row as any)['Aluno'] ||
         (row as any)['Nome'] ||
         (row as any)['student_name'] ||
-        ''
-    ).trim();
-
-    const rawSubject = String(
-      (row as any).rawSubjectName ||
-        (row as any).subjectName ||
-        (row as any)['Matéria'] ||
-        (row as any)['Materia'] ||
-        (row as any)['Curso'] ||
         ''
     ).trim();
 
@@ -362,82 +362,145 @@ export function computeStudentsForecast(params: {
       return;
     }
 
-    // Status da matéria atual (se for concluída, não é a matéria atual)
-    const statusMateria = String((row as any).subjectStatus || (row as any)['Status Matéria'] || (row as any)['Status Materia'] || 'Ativo').trim();
-    if (statusMateria.toLowerCase() === 'concluído' || statusMateria.toLowerCase() === 'concluido' || statusMateria.toLowerCase() === 'cancelado') {
+    // Status da matéria (matérias concluídas ou canceladas não geram demanda de apostila)
+    const statusMateria = String(
+      (row as any).subjectStatus ||
+        (row as any)['Status Matéria'] ||
+        (row as any)['Status Materia'] ||
+        'Ativo'
+    ).trim();
+    if (
+      statusMateria.toLowerCase() === 'concluído' ||
+      statusMateria.toLowerCase() === 'concluido' ||
+      statusMateria.toLowerCase() === 'cancelado'
+    ) {
       return;
     }
-
-    // Evita duplicar o mesmo aluno na mesma matéria
-    const studentSubjectKey = `${normalizeText(studentName)}__${normalizeText(rawSubject)}`;
-    if (processedKeys.has(studentSubjectKey)) {
-      return;
-    }
-    processedKeys.add(studentSubjectKey);
 
     const educatorName = String((row as any).educatorName || (row as any)['Educador'] || '').trim();
     const courseName = String((row as any).courseName || (row as any)['Formação'] || (row as any)['Formacao'] || '').trim();
-    const nextSubjectRaw = String((row as any).nextSubject || (row as any)['Próxima Matéria'] || (row as any)['Proxima Materia'] || '').trim();
 
-    const currentLessonRaw =
-      (row as any).currentLesson ??
-      (row as any)['Aula Atual'] ??
-      (row as any)['Aula'] ??
-      (row as any)['Aulas Realizadas'] ??
-      1;
-    const currentLesson = typeof currentLessonRaw === 'number' ? currentLessonRaw : parseInt(String(currentLessonRaw), 10) || 1;
+    const studentKey = normalizeText(studentName);
+    const existing = studentRowsMap.get(studentKey);
+    if (existing) {
+      existing.rows.push(row);
+      if (!existing.educatorName && educatorName) existing.educatorName = educatorName;
+      if (!existing.courseName && courseName) existing.courseName = courseName;
+    } else {
+      studentRowsMap.set(studentKey, {
+        studentName,
+        educatorName,
+        courseName,
+        rows: [row],
+      });
+    }
+  });
 
-    // 2. Validação da matéria
-    const subjectValidation = isValidForecastSubject(rawSubject, coursesConfig);
-    if (!subjectValidation.valid) {
-      if (rawSubject && !IGNORED_FORECAST_SUBJECTS.some((i) => normalizeText(rawSubject).includes(normalizeText(i)))) {
-        issues.push({
-          id: `issue_${idx}_subj`,
-          studentName,
-          subjectName: rawSubject,
-          issueType: 'missing_subject',
-          description: subjectValidation.reason || 'Matéria não reconhecida no catálogo oficial',
-          solutionTip: 'Verifique no Cadastro de Cursos se a matéria está ativa.',
-        });
-      }
-      return;
+  // 2. Itera sobre cada aluno único identificando sua matéria em andamento real
+  let studentIdx = 0;
+  studentRowsMap.forEach(({ studentName, educatorName, courseName, rows }) => {
+    studentIdx++;
+
+    // Extrai propriedades das linhas do aluno
+    const parsedRows = rows
+      .map((r, rIdx) => {
+        const rawSubject = String(
+          r.rawSubjectName ||
+            r.subjectName ||
+            r['Matéria'] ||
+            r['Materia'] ||
+            r['Curso'] ||
+            ''
+        ).trim();
+
+        const currentLessonRaw =
+          r.currentLesson ??
+          r['Aula Atual'] ??
+          r['Aula'] ??
+          r['Aulas Realizadas'] ??
+          1;
+        const currentLesson =
+          typeof currentLessonRaw === 'number'
+            ? currentLessonRaw
+            : parseInt(String(currentLessonRaw), 10) || 1;
+
+        const dtInicioRaw = String(
+          r.startDate ||
+            r['Data Início Matéria'] ||
+            r['Data Inicio Materia'] ||
+            r['Data Início'] ||
+            r['Data Inicio'] ||
+            ''
+        ).trim();
+        const hasDate = Boolean(dtInicioRaw && dtInicioRaw !== 'nan' && dtInicioRaw !== '-');
+
+        const hasPhysicalDelivery =
+          r.physicalDelivery === 'Sim' ||
+          r['Entrega Física'] === 'Sim' ||
+          r.hasPhysicalDelivery === true;
+
+        const nextSubjectRaw = String(
+          r.nextSubject ||
+            r['Próxima Matéria'] ||
+            r['Proxima Materia'] ||
+            ''
+        ).trim();
+
+        const remainingRaw = r.remainingSubjectsCount ?? r['Matérias Restantes'] ?? r['Materias Restantes'];
+        const explicitRemaining = typeof remainingRaw === 'number' ? remainingRaw : undefined;
+
+        return {
+          originalRow: r,
+          rawSubject,
+          currentLesson,
+          hasDate,
+          dtInicioRaw,
+          hasPhysicalDelivery,
+          nextSubjectRaw,
+          explicitRemaining,
+          rIdx,
+        };
+      })
+      .filter(
+        (r) =>
+          r.rawSubject &&
+          !IGNORED_FORECAST_SUBJECTS.some((i) => normalizeText(r.rawSubject).includes(normalizeText(i)))
+      );
+
+    if (parsedRows.length === 0) return;
+
+    // Classifica matérias iniciadas (com data de início ou aula > 1) vs não iniciadas na grade
+    const startedRows = parsedRows.filter((r) => r.hasDate || r.currentLesson > 1);
+    let unstartedRows = parsedRows.filter((r) => !r.hasDate && r.currentLesson <= 1);
+
+    let activeRows: typeof parsedRows = [];
+
+    if (startedRows.length > 0) {
+      activeRows = startedRows;
+    } else {
+      // Aluno novo (todas as matérias em aula 1 sem data ainda):
+      // Apenas a 1ª matéria da grade é a matéria em andamento atual
+      activeRows = [unstartedRows[0]];
+      unstartedRows = unstartedRows.slice(1);
     }
 
-    const cleanSubj = subjectValidation.cleanName;
-    const courseInfo = resolveCourseTotalLessons(cleanSubj, coursesConfig);
-    if (!courseInfo.active) {
-      return; // Matéria desativada na lixeira
-    }
-
-    const totalLessons = courseInfo.totalLessons;
-    const remainingLessonsInSubject = Math.max(0, totalLessons - currentLesson);
-
-    // 3. Frequência semanal (aulas por semana)
+    // Frequência semanal configurada para o aluno
     const configuredFreq = frequencyConfigs[normalizeText(studentName)];
     const lessonsPerWeek = configuredFreq && configuredFreq >= 1 && configuredFreq <= 4 ? configuredFreq : 2;
     const isSpecial = lessonsPerWeek > 2;
 
-    const remainingSubjectsRaw =
-      (row as any).remainingSubjectsCount ??
-      (row as any)['Matérias Restantes'] ??
-      (row as any)['Materias Restantes'] ??
-      2;
-    const remainingSubjectsCount = typeof remainingSubjectsRaw === 'number'
-      ? remainingSubjectsRaw
-      : parseInt(String(remainingSubjectsRaw), 10) || 2;
+    const remainingCount = unstartedRows.length > 0 ? unstartedRows.length : (activeRows[0]?.explicitRemaining ?? 0);
 
-    const hasPhysicalDelivery =
-      (row as any).physicalDelivery === 'Sim' ||
-      (row as any)['Entrega Física'] === 'Sim' ||
-      (row as any).hasPhysicalDelivery === true;
-
-    // Helper interno para agendar uma demanda em um determinado mês
+    // Helper interno para agendar uma demanda
     const scheduleDemand = (
       subjName: string,
       targetMonthIndex: number,
       weeksWait: number,
       demandStatus: 'imediato' | 'projetado',
-      stage: 'atual' | 'proxima'
+      stage: 'atual' | 'proxima',
+      subjCurrentLesson: number,
+      subjTotalLessons: number,
+      hasDelivery: boolean
     ) => {
       if (targetMonthIndex < 1 || targetMonthIndex > horizonMonths) return;
 
@@ -450,15 +513,15 @@ export function computeStudentsForecast(params: {
       uniqueStudentsGlobal.add(studentName);
 
       forecastItems.push({
-        id: `fc_${idx}_${normalizeText(studentName).replace(/\s+/g, '_')}_m${targetMonthIndex}_${stage}`,
+        id: `fc_${studentIdx}_${normalizeText(studentName).replace(/\s+/g, '_')}_m${targetMonthIndex}_${stage}_${normalizeText(subjName).slice(0, 10)}`,
         studentName,
         subjectName: subjName,
         courseName,
         educatorName,
-        currentLesson,
-        totalLessons,
-        remainingLessonsInSubject,
-        remainingSubjectsCount,
+        currentLesson: subjCurrentLesson,
+        totalLessons: subjTotalLessons,
+        remainingLessonsInSubject: Math.max(0, subjTotalLessons - subjCurrentLesson),
+        remainingSubjectsCount: remainingCount,
         lessonsPerWeek,
         isSpecial,
         triggerLesson,
@@ -466,62 +529,119 @@ export function computeStudentsForecast(params: {
         estimatedMonthLabel: `${mSlot.label} (${mSlot.relativeLabel})`,
         estimatedMonthIndex: targetMonthIndex,
         status: demandStatus,
-        nextSubjectName: nextSubjectRaw,
-        hasPhysicalDelivery,
+        nextSubjectName: unstartedRows[0]?.rawSubject || '',
+        hasPhysicalDelivery: hasDelivery,
         stage,
       });
     };
 
-    // =========================================================================
-    // CICLO 1: APOSTILA DA MATÉRIA ATUAL (Se ainda não entregue)
-    // =========================================================================
-    let currentSubjectDeliveredInMonth = 0;
-
-    if (!hasPhysicalDelivery) {
-      if (currentLesson >= triggerLesson) {
-        // Aluno já está na aula do gatilho ou acima e não tem apostila -> Demanda Imediata Mês 1
-        scheduleDemand(cleanSubj, 1, 0, 'imediato', 'atual');
-        currentSubjectDeliveredInMonth = 1;
-      } else {
-        // Aluno está antes do gatilho (ex: aula 1 a 3) -> atinge gatilho em algumas semanas
-        const lessonsToTrigger = triggerLesson - currentLesson;
-        const weeksToTrigger = Math.max(1, Math.ceil(lessonsToTrigger / lessonsPerWeek));
-        const monthOfTrigger = Math.min(horizonMonths, Math.max(1, Math.ceil(weeksToTrigger / 4)));
-        scheduleDemand(cleanSubj, monthOfTrigger, weeksToTrigger, 'projetado', 'atual');
-        currentSubjectDeliveredInMonth = monthOfTrigger;
+    // Para cada matéria em andamento real do aluno:
+    activeRows.forEach((actRow) => {
+      const subjectValidation = isValidForecastSubject(actRow.rawSubject, coursesConfig);
+      if (!subjectValidation.valid) {
+        issues.push({
+          id: `issue_${studentIdx}_${actRow.rIdx}`,
+          studentName,
+          subjectName: actRow.rawSubject,
+          issueType: 'missing_subject',
+          description: subjectValidation.reason || 'Matéria não reconhecida no catálogo oficial',
+          solutionTip: 'Verifique no Cadastro de Cursos se a matéria está ativa.',
+        });
+        return;
       }
-    }
 
-    // =========================================================================
-    // CICLO 2: APOSTILA DA PRÓXIMA MATÉRIA
-    // O aluno termina a matéria atual e atinge a aula 4 da próxima matéria
-    // =========================================================================
-    if (remainingSubjectsCount > 0) {
-      // Semanas até concluir a matéria atual
-      const weeksToFinishCurrent = Math.max(0, Math.ceil(remainingLessonsInSubject / lessonsPerWeek));
-      // Na próxima matéria, precisará de apostila na aula triggerLesson (4)
-      const weeksToTriggerNext = weeksToFinishCurrent + Math.max(1, Math.ceil(triggerLesson / lessonsPerWeek));
-      const monthOfNext = Math.ceil(weeksToTriggerNext / 4);
+      const cleanSubj = subjectValidation.cleanName;
+      const courseInfo = resolveCourseTotalLessons(cleanSubj, coursesConfig);
+      if (!courseInfo.active) return;
 
-      if (monthOfNext >= 1 && monthOfNext <= horizonMonths) {
-        // Define o nome da próxima matéria
-        let nextSubjName = '';
-        if (nextSubjectRaw) {
-          const nextVal = isValidForecastSubject(nextSubjectRaw, coursesConfig);
-          nextSubjName = nextVal.valid ? nextVal.cleanName : sanitizeRawSubject(nextSubjectRaw);
+      const totalLessons = courseInfo.totalLessons;
+      const remainingLessonsInSubject = Math.max(0, totalLessons - actRow.currentLesson);
+
+      // =========================================================================
+      // CICLO 1: APOSTILA DA MATÉRIA ATUAL (Se ainda não entregue fisicamente)
+      // =========================================================================
+      if (!actRow.hasPhysicalDelivery) {
+        if (actRow.currentLesson >= triggerLesson) {
+          // Já está na aula do gatilho ou acima e não tem apostila -> Demanda Imediata Mês 1
+          scheduleDemand(
+            cleanSubj,
+            1,
+            0,
+            'imediato',
+            'atual',
+            actRow.currentLesson,
+            totalLessons,
+            actRow.hasPhysicalDelivery
+          );
+        } else {
+          // Está antes do gatilho (ex: aula 1 a 3) -> atinge gatilho em algumas semanas
+          const lessonsToTrigger = triggerLesson - actRow.currentLesson;
+          const weeksToTrigger = Math.max(1, Math.ceil(lessonsToTrigger / lessonsPerWeek));
+          const monthOfTrigger = Math.min(horizonMonths, Math.max(1, Math.ceil(weeksToTrigger / 4)));
+          scheduleDemand(
+            cleanSubj,
+            monthOfTrigger,
+            weeksToTrigger,
+            'projetado',
+            'atual',
+            actRow.currentLesson,
+            totalLessons,
+            actRow.hasPhysicalDelivery
+          );
         }
-        if (!nextSubjName || nextSubjName === cleanSubj) {
-          const sequential = resolveNextSequentialSubject(cleanSubj, coursesConfig);
-          if (sequential) {
-            nextSubjName = sequential;
-          } else {
-            nextSubjName = `Próx. Matéria pós ${cleanSubj}`;
+      }
+
+      // =========================================================================
+      // CICLO 2: APOSTILA DA PRÓXIMA MATÉRIA
+      // O aluno conclui a matéria atual e atinge a aula gatilho (4) da próxima
+      // =========================================================================
+      const hasUpcomingSubjects = unstartedRows.length > 0 || actRow.nextSubjectRaw || remainingCount > 0;
+      if (hasUpcomingSubjects) {
+        const weeksToFinishCurrent = Math.max(0, Math.ceil(remainingLessonsInSubject / lessonsPerWeek));
+        const weeksToTriggerNext = weeksToFinishCurrent + Math.max(1, Math.ceil(triggerLesson / lessonsPerWeek));
+        const monthOfNext = Math.ceil(weeksToTriggerNext / 4);
+
+        if (monthOfNext >= 1 && monthOfNext <= horizonMonths) {
+          let nextSubjName = '';
+
+          // 1. Tenta a próxima matéria informada explicitamente
+          if (actRow.nextSubjectRaw) {
+            const nextVal = isValidForecastSubject(actRow.nextSubjectRaw, coursesConfig);
+            nextSubjName = nextVal.valid ? nextVal.cleanName : sanitizeRawSubject(actRow.nextSubjectRaw);
           }
-        }
 
-        scheduleDemand(nextSubjName, monthOfNext, weeksToTriggerNext, 'projetado', 'proxima');
+          // 2. Tenta a 1ª matéria não iniciada da grade curricular do contrato
+          if (!nextSubjName && unstartedRows.length > 0) {
+            const unstartedCandidate = unstartedRows[0].rawSubject;
+            const nextVal = isValidForecastSubject(unstartedCandidate, coursesConfig);
+            nextSubjName = nextVal.valid ? nextVal.cleanName : sanitizeRawSubject(unstartedCandidate);
+          }
+
+          // 3. Tenta resolução sequencial lógica (ex: Módulo I -> Módulo II)
+          if (!nextSubjName || nextSubjName === cleanSubj) {
+            const sequential = resolveNextSequentialSubject(cleanSubj, coursesConfig);
+            if (sequential) {
+              nextSubjName = sequential;
+            } else {
+              nextSubjName = `Próx. Matéria pós ${cleanSubj}`;
+            }
+          }
+
+          const nextCourseInfo = resolveCourseTotalLessons(nextSubjName, coursesConfig);
+
+          scheduleDemand(
+            nextSubjName,
+            monthOfNext,
+            weeksToTriggerNext,
+            'projetado',
+            'proxima',
+            1,
+            nextCourseInfo.totalLessons,
+            false
+          );
+        }
       }
-    }
+    });
   });
 
   // Constrói resumos mensais com totais e contagem de alunos únicos por mês

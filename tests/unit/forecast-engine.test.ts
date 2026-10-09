@@ -171,4 +171,79 @@ describe('Motor de Previsão de Apostilas & Cronograma de Compras', () => {
     expect(resolveNextSequentialSubject('Excel 2021', catalog)).toBeNull();
     expect(resolveNextSequentialSubject('Word 2021', catalog)).toBeNull();
   });
+
+  it('deve agrupar contratos com múltiplas matérias e não explodir matérias não iniciadas no Mês 1', () => {
+    const catalog = getDefaultCourseDurations();
+    // Simula 1 aluno que possui 6 matérias no contrato do pacote (como ocorre no relatório real)
+    const mockStudentMultiRows = [
+      {
+        studentName: 'Douglas Henrique',
+        rawSubjectName: '161860_CorelDraw Graphics Suite - Módulo II',
+        currentLesson: 14,
+        startDate: '2026-02-01', // Iniciada
+        physicalDelivery: 'Sim', // Já entregue
+      },
+      {
+        studentName: 'Douglas Henrique',
+        rawSubjectName: '161884_Adobe Illustrator - Creative Cloud',
+        currentLesson: 10,
+        startDate: '2026-03-01', // Iniciada
+        physicalDelivery: 'Não', // Demanda imediata
+      },
+      {
+        studentName: 'Douglas Henrique',
+        rawSubjectName: '161873_Internet e Outlook',
+        currentLesson: 1,
+        startDate: '', // NÃO iniciada (na fila da grade)
+        physicalDelivery: 'Não',
+      },
+      {
+        studentName: 'Douglas Henrique',
+        rawSubjectName: '161876_Internet, Redes Sociais e Aplicativos',
+        currentLesson: 1,
+        startDate: '', // NÃO iniciada
+        physicalDelivery: 'Não',
+      },
+      {
+        studentName: 'Douglas Henrique',
+        rawSubjectName: '161871_Excel 2021',
+        currentLesson: 1,
+        startDate: '', // NÃO iniciada
+        physicalDelivery: 'Não',
+      },
+      {
+        studentName: 'Douglas Henrique',
+        rawSubjectName: '161870_Word 2021',
+        currentLesson: 1,
+        startDate: '', // NÃO iniciada
+        physicalDelivery: 'Não',
+      },
+    ];
+
+    const result = computeStudentsForecast({
+      rawOrProcessedItems: mockStudentMultiRows,
+      coursesConfig: catalog,
+      frequencyConfigs: {},
+      triggerLesson: 4,
+      horizonMonths: 4,
+    });
+
+    // 1 único aluno
+    expect(result.uniqueStudentsCount).toBe(1);
+
+    // No Mês 1, APENAS a matéria iniciada sem livro (Illustrator) deve ser agendada imediatamente
+    // Matérias não iniciadas da grade como Word, Excel, Internet NUNCA devem ser agendadas para o Mês 1
+    const m1Items = result.forecastItems.filter((i) => i.estimatedMonthIndex === 1 && i.status === 'imediato');
+    expect(m1Items.length).toBe(1);
+    expect(m1Items[0].subjectName).toBe('Adobe Illustrator - Creative Cloud');
+
+    // A próxima matéria deve ser selecionada da fila da grade (Internet e Outlook)
+    const proximaItems = result.forecastItems.filter((i) => i.stage === 'proxima');
+    expect(proximaItems.length).toBeGreaterThanOrEqual(1);
+    expect(proximaItems[0].subjectName).toBe('Internet e Outlook');
+
+    // As outras matérias da grade (Excel, Word) NÃO devem gerar demandas simultâneas
+    const hasWord = result.forecastItems.some((i) => i.subjectName.includes('Word'));
+    expect(hasWord).toBe(false);
+  });
 });
