@@ -26,7 +26,7 @@ import { Order, OrderItem } from '../../types';
 import { useDialog } from '../../components/ui/dialog';
 import { exportOrderToExcel } from '../../lib/export/excel-order-export';
 
-type SortField = 'title' | 'competence' | 'total_items' | 'status' | 'educator';
+type SortField = 'sequence_num' | 'title' | 'competence' | 'total_items' | 'status' | 'educator';
 type SortDirection = 'asc' | 'desc';
 
 interface OrderWithEducator extends Order {
@@ -43,9 +43,9 @@ function HistoricoContent() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Sorting
-  const [sortField, setSortField] = useState<SortField>('title');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  // Sorting - Padrão: Código do mais novo para o mais antigo
+  const [sortField, setSortField] = useState<SortField>('sequence_num');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   // Selected Order for Detail
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
@@ -241,6 +241,10 @@ function HistoricoContent() {
       let valB: string | number = '';
 
       switch (sortField) {
+        case 'sequence_num':
+          valA = a.sequence_num ?? 0;
+          valB = b.sequence_num ?? 0;
+          break;
         case 'title':
           valA = a.title.toLowerCase();
           valB = b.title.toLowerCase();
@@ -279,7 +283,7 @@ function HistoricoContent() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
             <History className="w-6 h-6 text-[#0f3b7d]" />
-            Histórico Consolidado de Pedidos
+            Histórico de Pedidos
           </h1>
           <p className="text-xs text-slate-500 mt-1">
             Base oficial de pedidos arquivados, edição real in-place e reimpressão
@@ -321,6 +325,15 @@ function HistoricoContent() {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider">
                 <tr>
+                  <th
+                    className="py-3 px-4 w-16 text-center cursor-pointer hover:text-[#0f3b7d] transition-colors select-none"
+                    onClick={() => handleSort('sequence_num')}
+                  >
+                    <span className="inline-flex items-center justify-center">
+                      #
+                      <SortIcon field="sequence_num" />
+                    </span>
+                  </th>
                   <th
                     className="py-3 px-4 cursor-pointer hover:text-[#0f3b7d] transition-colors select-none"
                     onClick={() => handleSort('title')}
@@ -372,6 +385,9 @@ function HistoricoContent() {
               <tbody className="divide-y divide-slate-100">
                 {sortedOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-3 px-4 text-center font-mono font-bold text-slate-700">
+                      #{order.sequence_num}
+                    </td>
                     <td className="py-3 px-4 font-semibold text-slate-900">{order.title}</td>
                     <td className="py-3 px-4 text-slate-600">
                       {order.competence_month}/{order.competence_year}

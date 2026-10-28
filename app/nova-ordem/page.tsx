@@ -1160,11 +1160,11 @@ export default function NovaOrdemPage() {
           </div>
         </div>
 
-        {/* Card 2: Upload da Planilha Principal (Entrega de Apostilas) */}
+        {/* Card 2: Upload da Planilha de Entrega de Apostila */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-slate-600 block mb-2">
-              2. Planilha Principal (.xls, .xlsx, .csv)
+              2. Entrega de Apostila (.xls, .xlsx, .csv)
             </label>
             <div className="border-2 border-dashed border-slate-300 hover:border-[#0f3b7d] rounded-xl p-4 text-center cursor-pointer transition-colors relative bg-slate-50/50">
               <input

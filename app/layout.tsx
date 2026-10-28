@@ -4,8 +4,12 @@ import { Sidebar } from '../components/sidebar';
 import { DialogProvider } from '../components/ui/dialog';
 
 export const metadata: Metadata = {
-  title: 'Gestão de Apostilas • Microlins Potirendaba',
+  title: 'Gestão de Apostilas • Microlins',
   description: 'Sistema Profissional de Controle e Higienização de Material Didático',
+  icons: {
+    icon: '/images/microlins-icon.png',
+    apple: '/images/microlins-icon.png',
+  },
 };
 
 export default function RootLayout({

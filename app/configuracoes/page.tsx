@@ -159,10 +159,10 @@ export default function ConfiguracoesPage() {
       <div className="border-b border-slate-200 pb-5">
         <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
           <Settings className="w-6 h-6 text-[#0f3b7d]" />
-          Parâmetros da Unidade (Microlins Potirendaba)
+          Parâmetros
         </h1>
         <p className="text-xs text-slate-500 mt-1">
-          Regras de negócio padronizadas, parâmetros de importação e identidade visual
+          Regras de negócio padronizadas e parâmetros de importação
         </p>
       </div>
 
@@ -201,201 +201,156 @@ export default function ConfiguracoesPage() {
           </div>
         </div>
 
-        {/* Matérias e Contratos Excluídos - Formato de Lista Interativa */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
-          <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <Tag className="w-4 h-4 text-[#0f3b7d]" /> Regras de Exclusão de Matérias e Contratos
-          </h2>
-
-          {/* Lista de Matérias Ignoradas */}
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block">
-                Matérias Ignoradas por Padrão
-              </label>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Alunos com estas matérias não terão apostilas solicitadas (ex: digitação sem material físico).
-              </p>
-            </div>
-
-            {/* Badges / Lista */}
-            <div className="flex flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200/80 rounded-xl min-h-[50px] items-center">
-              {settings.ignored_subjects.length === 0 ? (
-                <span className="text-xs text-slate-400 italic">Nenhuma matéria adicionada à lista.</span>
-              ) : (
-                settings.ignored_subjects.map((sub) => (
-                  <span
-                    key={sub}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 shadow-sm group hover:border-red-200 transition-colors"
-                  >
-                    <span>{sub}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSubject(sub)}
-                      className="text-slate-400 hover:text-red-500 rounded p-0.5 transition-colors"
-                      title={`Remover "${sub}"`}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </span>
-                ))
-              )}
-            </div>
-
-            {/* Input para Adicionar Novo Item */}
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={newSubject}
-                onChange={(e) => setNewSubject(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddSubject();
-                  }
-                }}
-                placeholder="Digitar nome da matéria e pressionar Enter..."
-                className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0f3b7d] focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => handleAddSubject()}
-                disabled={!newSubject.trim()}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-[#0f3b7d] text-slate-700 hover:text-white rounded-lg text-xs font-semibold transition-all disabled:opacity-40 disabled:hover:bg-slate-100 disabled:hover:text-slate-700"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Adicionar</span>
-              </button>
-            </div>
+        {/* Matérias e Contratos Excluídos - Formato de 2 Colunas e Lista */}
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-5">
+          <div className="border-b border-slate-100 pb-3">
+            <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <Tag className="w-4 h-4 text-[#0f3b7d]" /> Regras de Exclusão de Matérias e Contratos
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Defina as matérias e os tipos contratuais que não devem gerar pedidos de apostilas.
+            </p>
           </div>
 
-          <hr className="border-slate-100" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Coluna 1: Lista de Matérias Ignoradas */}
+            <div className="space-y-3 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block">
+                    Matérias Ignoradas por Padrão ({settings.ignored_subjects.length})
+                  </label>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Alunos com estas matérias não terão apostilas solicitadas (ex: digitação sem material físico).
+                  </p>
+                </div>
 
-          {/* Lista de Contratos Excluídos (Checkbox Interativo) */}
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block">
-                Tipos de Contrato Excluídos
-              </label>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                Marque os tipos contratuais que devem ser ignorados do pedido. Desmarque para incluir novamente.
-              </p>
+                {/* Lista Vertical com Scroll */}
+                <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl max-h-64 min-h-[140px] overflow-y-auto space-y-1.5">
+                  {settings.ignored_subjects.length === 0 ? (
+                    <div className="text-xs text-slate-400 italic p-3 text-center">Nenhuma matéria adicionada à lista.</div>
+                  ) : (
+                    settings.ignored_subjects.map((sub) => (
+                      <div
+                        key={sub}
+                        className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-700 shadow-xs group hover:border-slate-300 transition-colors"
+                      >
+                        <span className="truncate pr-2">{sub}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSubject(sub)}
+                          className="text-slate-400 hover:text-red-500 rounded p-0.5 transition-colors shrink-0"
+                          title={`Remover "${sub}"`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Input para Adicionar Novo Item */}
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="text"
+                  value={newSubject}
+                  onChange={(e) => setNewSubject(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddSubject();
+                    }
+                  }}
+                  placeholder="Digitar nome da matéria e pressionar Enter..."
+                  className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0f3b7d] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleAddSubject()}
+                  disabled={!newSubject.trim()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-[#0f3b7d] text-slate-700 hover:text-white rounded-lg text-xs font-semibold transition-all disabled:opacity-40 disabled:hover:bg-slate-100 disabled:hover:text-slate-700 shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Adicionar</span>
+                </button>
+              </div>
             </div>
 
-            {/* Checkboxes Interativas */}
-            <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl min-h-[50px] space-y-2">
-              {settings.excluded_contract_types.length === 0 ? (
-                <span className="text-xs text-slate-400 italic">Nenhum tipo de contrato cadastrado. Adicione abaixo.</span>
-              ) : (
-                settings.excluded_contract_types.map((contract) => {
-                  // Cada item é tratado como "ativo" (marcado) por padrão — quando está na lista, será excluído
-                  // O estado do checkbox controla se o tipo está ativo para exclusão
-                  const isActive = !(settings as any)._disabledContracts?.includes(contract);
-                  return (
-                    <div
-                      key={contract}
-                      className="flex items-center justify-between px-3 py-2 bg-white border border-slate-200 rounded-lg shadow-sm group hover:border-slate-300 transition-colors"
-                    >
-                      <label className="flex items-center gap-2.5 cursor-pointer flex-1">
-                        <div className="relative flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={true}
-                            onChange={() => {/* always checked — remove to uncheck */}}
-                            className="sr-only peer"
-                          />
-                          <div className="w-4 h-4 rounded border-2 border-[#0f3b7d] bg-[#0f3b7d] flex items-center justify-center">
+            {/* Coluna 2: Lista de Contratos Excluídos */}
+            <div className="space-y-3 flex flex-col justify-between">
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block">
+                    Tipos de Contrato Excluídos ({settings.excluded_contract_types.length})
+                  </label>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Marque os tipos contratuais que devem ser ignorados do pedido.
+                  </p>
+                </div>
+
+                {/* Lista Vertical com Scroll */}
+                <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl max-h-64 min-h-[140px] overflow-y-auto space-y-1.5">
+                  {settings.excluded_contract_types.length === 0 ? (
+                    <div className="text-xs text-slate-400 italic p-3 text-center">Nenhum tipo de contrato cadastrado.</div>
+                  ) : (
+                    settings.excluded_contract_types.map((contract) => (
+                      <div
+                        key={contract}
+                        className="flex items-center justify-between px-3 py-1.5 bg-white border border-slate-200 rounded-lg shadow-xs group hover:border-slate-300 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-4 h-4 rounded border-2 border-[#0f3b7d] bg-[#0f3b7d] flex items-center justify-center shrink-0">
                             <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                             </svg>
                           </div>
+                          <span className="text-xs font-medium text-slate-700">{contract}</span>
                         </div>
-                        <span className="text-xs font-medium text-slate-700">{contract}</span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveContractType(contract)}
-                        className="text-slate-400 hover:text-red-500 rounded p-0.5 transition-colors opacity-0 group-hover:opacity-100"
-                        title={`Remover "${contract}" permanentemente`}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Input para Adicionar Novo Tipo de Contrato */}
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={newContractType}
-                onChange={(e) => setNewContractType(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddContractType();
-                  }
-                }}
-                placeholder="Digitar tipo de contrato e pressionar Enter..."
-                className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0f3b7d] focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => handleAddContractType()}
-                disabled={!newContractType.trim()}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-[#0f3b7d] text-slate-700 hover:text-white rounded-lg text-xs font-semibold transition-all disabled:opacity-40 disabled:hover:bg-slate-100 disabled:hover:text-slate-700"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Adicionar</span>
-              </button>
-            </div>
-
-            <p className="text-[10px] text-slate-500 italic flex items-center gap-1.5 mt-2">
-              <Info className="w-3.5 h-3.5 text-[#0f3b7d] shrink-0 not-italic" />
-              <span>Os tipos marcados acima serão excluídos automaticamente ao importar planilhas. Remova com o X para excluir permanentemente da lista.</span>
-            </p>
-          </div>
-        </div>
-
-        {/* Identidade Visual */}
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
-          <h2 className="text-sm font-bold text-slate-800">Identidade Visual Microlins Potirendaba</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-semibold text-slate-600 block mb-1">Azul Institucional</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={settings.institutional_blue}
-                  onChange={(e) => setSettings({ ...settings, institutional_blue: e.target.value })}
-                  className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
-                />
-                <input
-                  type="text"
-                  value={settings.institutional_blue}
-                  onChange={(e) => setSettings({ ...settings, institutional_blue: e.target.value })}
-                  className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
-                />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveContractType(contract)}
+                          className="text-slate-400 hover:text-red-500 rounded p-0.5 transition-colors shrink-0"
+                          title={`Remover "${contract}" permanentemente`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-600 block mb-1">Vermelho Institucional</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={settings.institutional_red}
-                  onChange={(e) => setSettings({ ...settings, institutional_red: e.target.value })}
-                  className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
-                />
-                <input
-                  type="text"
-                  value={settings.institutional_red}
-                  onChange={(e) => setSettings({ ...settings, institutional_red: e.target.value })}
-                  className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-[#0f3b7d]"
-                />
+              {/* Input para Adicionar Novo Tipo de Contrato */}
+              <div className="space-y-1 pt-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newContractType}
+                    onChange={(e) => setNewContractType(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddContractType();
+                      }
+                    }}
+                    placeholder="Digitar tipo de contrato e pressionar Enter..."
+                    className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#0f3b7d] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddContractType()}
+                    disabled={!newContractType.trim()}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-[#0f3b7d] text-slate-700 hover:text-white rounded-lg text-xs font-semibold transition-all disabled:opacity-40 disabled:hover:bg-slate-100 disabled:hover:text-slate-700 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Adicionar</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 italic flex items-center gap-1 mt-1">
+                  <Info className="w-3.5 h-3.5 text-[#0f3b7d] shrink-0 not-italic" />
+                  <span>Os tipos acima serão excluídos automaticamente ao importar planilhas.</span>
+                </p>
               </div>
             </div>
           </div>

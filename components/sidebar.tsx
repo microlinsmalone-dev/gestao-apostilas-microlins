@@ -10,8 +10,6 @@ import {
   History,
   GraduationCap,
   Settings,
-  ShieldCheck,
-  BookOpen,
   CalendarClock
 } from 'lucide-react';
 
@@ -23,7 +21,6 @@ const menuItems = [
   { label: 'Histórico', href: '/historico', icon: History },
   { label: 'Educadores', href: '/configuracoes/educadores', icon: GraduationCap },
   { label: 'Configurações', href: '/configuracoes', icon: Settings },
-  { label: 'Higienização', href: '/ferramentas/higienizacao', icon: ShieldCheck },
 ];
 
 export function Sidebar() {
@@ -34,16 +31,15 @@ export function Sidebar() {
       {/* Brand Header */}
       <div className="p-6 border-b border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-[#0f3b7d] flex items-center justify-center text-white font-bold shadow-md border border-[#1e54a4]">
-            <BookOpen className="w-5 h-5 text-white" />
-          </div>
+          <img
+            src="/images/microlins-icon.png"
+            alt="Microlins"
+            className="w-10 h-10 rounded-lg shadow-md object-contain shrink-0"
+          />
           <div>
             <h1 className="font-bold text-base tracking-wide text-white">Microlins</h1>
             <p className="text-xs text-slate-400 font-medium">Gestão de Apostilas</p>
           </div>
-        </div>
-        <div className="mt-3 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-[#d91a2a]/20 text-red-300 border border-red-500/30">
-          Unidade Potirendaba
         </div>
       </div>
 

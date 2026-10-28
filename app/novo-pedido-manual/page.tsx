@@ -14,7 +14,6 @@ import {
   ClipboardPaste,
   X,
   History,
-  Lock,
   UserCheck,
   ChevronDown,
   Check,
@@ -219,10 +218,13 @@ function NovoPedidoManualContent() {
           id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9),
           studentName: item.student_name,
           subjectName: item.subject_name,
-          educatorName: toFirstName(item.educator_name),
+          educatorName: item.educator_name || '',
         }));
 
         setRows(loadedRows);
+        if (items.some((it) => Boolean(it.educator_name?.trim()))) {
+          setShowEducatorColumn(true);
+        }
       }
 
       showToast(`Pedido "${order.title}" carregado para edição.`, 'info');
@@ -264,13 +266,16 @@ function NovoPedidoManualContent() {
           if (draft.rows && draft.rows.length > 0) {
             const sanitizedRows = draft.rows.map((r: any) => ({
               ...r,
-              educatorName: toFirstName(r.educatorName),
+              educatorName: r.educatorName || '',
             }));
             setRows(sanitizedRows);
+            if (draft.showEducatorColumn || draft.rows.some((r: any) => Boolean(r.educatorName?.trim()))) {
+              setShowEducatorColumn(true);
+            }
             if (draft.title) setTitle(draft.title);
             if (draft.competenceMonth) setCompetenceMonth(draft.competenceMonth);
             if (draft.competenceYear) setCompetenceYear(draft.competenceYear);
-            if (draft.selectedEducator) setSelectedEducator(toFirstName(draft.selectedEducator));
+            if (draft.selectedEducator) setSelectedEducator(draft.selectedEducator);
             if (draft.source === 'imported_from_nova_ordem') {
               setIsFromImport(true);
               setImportedFileName(draft.importedFileName || '');
@@ -313,6 +318,7 @@ function NovoPedidoManualContent() {
             competenceMonth,
             competenceYear,
             selectedEducator,
+            showEducatorColumn: displayEducatorCol,
             rows,
             isEditMode: true,
             editingOrderId,
@@ -334,6 +340,7 @@ function NovoPedidoManualContent() {
           competenceMonth,
           competenceYear,
           selectedEducator,
+          showEducatorColumn: displayEducatorCol,
           rows,
           isEditMode: false,
           editingOrderId: null,
@@ -485,8 +492,7 @@ function NovoPedidoManualContent() {
     setRows((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
-        const val = field === 'educatorName' ? toFirstName(value) : value;
-        return { ...row, [field]: val };
+        return { ...row, [field]: value };
       })
     );
   };
@@ -693,9 +699,9 @@ function NovoPedidoManualContent() {
           );
 
           const cleanSubj = cleanSubject(row.subjectName);
-          const rowEducator = showEducatorColumn && row.educatorName?.trim()
-            ? toFirstName(row.educatorName.trim())
-            : toFirstName(selectedEducator.trim());
+          const rowEducator = row.educatorName?.trim()
+            ? row.educatorName.trim()
+            : (selectedEducator.trim() || null);
 
           return {
             order_id: editingOrderId,
@@ -727,7 +733,7 @@ function NovoPedidoManualContent() {
           list.push({
             orderId: editingOrderId,
             orderTitle: cleanTitleStr,
-            educatorName: toFirstName(r.educatorName?.trim() || selectedEducator.trim() || ''),
+            educatorName: r.educatorName?.trim() || selectedEducator.trim() || '',
           });
           historicalMap.set(fp, list);
         });
@@ -795,9 +801,9 @@ function NovoPedidoManualContent() {
           );
 
           const cleanSubj = cleanSubject(row.subjectName);
-          const rowEducator = showEducatorColumn && row.educatorName?.trim()
-            ? toFirstName(row.educatorName.trim())
-            : toFirstName(selectedEducator.trim());
+          const rowEducator = row.educatorName?.trim()
+            ? row.educatorName.trim()
+            : (selectedEducator.trim() || null);
 
           return {
             order_id: newOrder.id,
@@ -854,7 +860,7 @@ function NovoPedidoManualContent() {
             list.push({
               orderId: newOrder.id,
               orderTitle: cleanTitleStr,
-              educatorName: toFirstName(r.educatorName?.trim() || selectedEducator.trim() || ''),
+              educatorName: r.educatorName?.trim() || selectedEducator.trim() || '',
             });
             historicalMap.set(fp, list);
           });
@@ -1181,21 +1187,6 @@ function NovoPedidoManualContent() {
             </div>
           </div>
         </div>
-
-        {/* Linha de Campos Bloqueados / Padronizados para o Histórico */}
-        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-4 text-xs text-slate-500">
-          <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
-            <Lock className="w-3 h-3 text-slate-400" />
-            <span>Data da Entrega:</span>
-            <strong className="text-slate-700">Competência ({String(competenceMonth).padStart(2, '0')}/{competenceYear})</strong>
-          </div>
-
-          <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
-            <Lock className="w-3 h-3 text-slate-400" />
-            <span>Status no Histórico:</span>
-            <strong className="text-[#0f3b7d]">{isEditMode ? 'Atualização In-Place' : 'Arquivado / Concluído'}</strong>
-          </div>
-        </div>
       </div>
 
       {/* Grid de Digitação Focada (Apenas Aluno e Matéria) */}
@@ -1338,9 +1329,9 @@ function NovoPedidoManualContent() {
                         <input
                           type="text"
                           autoComplete="off"
-                          value={toFirstName(row.educatorName) || ''}
-                          onChange={(e) => handleRowChange(row.id, 'educatorName', toFirstName(e.target.value))}
-                          placeholder={toFirstName(selectedEducator) || 'Educador do aluno'}
+                          value={row.educatorName || ''}
+                          onChange={(e) => handleRowChange(row.id, 'educatorName', e.target.value)}
+                          placeholder={selectedEducator || 'Educador do aluno'}
                           className="w-full px-3 py-1.5 border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
                         />
                       </td>
