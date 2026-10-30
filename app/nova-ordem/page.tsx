@@ -45,7 +45,7 @@ import {
   enrichItemsWithPedagogicalSchedule,
   PedagogicalScheduleAnalysis
 } from '../../lib/importers';
-import { analyzeDuplicates } from '../../lib/domain/duplicates';
+import { analyzeDuplicates, createDuplicateFingerprint } from '../../lib/domain/duplicates';
 import { formatOrderTitle, normalizeText, toFirstName } from '../../lib/domain/sanitizer';
 import { ProcessedStudentItem, Educator } from '../../types';
 import { supabase } from '../../lib/supabase/client';
@@ -116,6 +116,15 @@ export default function NovaOrdemPage() {
     'Pyetra Alves Vieira de Oliveira',
   ]);
   const [historicalMap, setHistoricalMap] = useState<Map<string, string>>(new Map());
+
+  // Armazena fingerprints de itens excluídos manualmente (individualmente ou via remoção de histórico)
+  // para que NÃO voltem a aparecer quando a faixa de aulas for alterada (imagem2)
+  const [excludedFingerprints, setExcludedFingerprints] = useState<Set<string>>(new Set());
+  const excludedFingerprintsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    excludedFingerprintsRef.current = excludedFingerprints;
+  }, [excludedFingerprints]);
 
   // Settings-based exclusion lists (loaded from Supabase)
   const [ignoredSubjects, setIgnoredSubjects] = useState<string[]>(['Digitação', 'Digitacao']);
@@ -285,6 +294,11 @@ export default function NovaOrdemPage() {
               if (draft.matchedPedagogicalCount) setMatchedPedagogicalCount(draft.matchedPedagogicalCount);
               if (draft.internalDuplicatesCount !== undefined) setInternalDuplicatesCount(draft.internalDuplicatesCount);
               if (draft.historicalDuplicatesCount !== undefined) setHistoricalDuplicatesCount(draft.historicalDuplicatesCount);
+              if (draft.excludedFingerprints && Array.isArray(draft.excludedFingerprints)) {
+                const restoredSet = new Set<string>(draft.excludedFingerprints);
+                setExcludedFingerprints(restoredSet);
+                excludedFingerprintsRef.current = restoredSet;
+              }
               setStep(3);
               setHasRestoredDraft(true);
 
@@ -370,6 +384,15 @@ export default function NovaOrdemPage() {
         pedagogicalMatched = enrichedResult.matchedCount;
       }
 
+      // Preserva exclusões manuais feitas pelo usuário para que NÃO voltem ao mudar a faixa de aulas (imagem2)
+      const currentExcluded = excludedFingerprintsRef.current;
+      if (currentExcluded.size > 0) {
+        enrichedItems = enrichedItems.filter((item) => {
+          const fp = item.duplicateFingerprint || createDuplicateFingerprint(item.studentName, item.subjectName);
+          return !currentExcluded.has(fp);
+        });
+      }
+
       const duplicateAnalysis = analyzeDuplicates(enrichedItems, historicalMap);
 
       setItems(duplicateAnalysis.items);
@@ -396,6 +419,8 @@ export default function NovaOrdemPage() {
     try {
       setIsProcessingFile(true);
       setErrorMessage('');
+      setExcludedFingerprints(new Set());
+      excludedFingerprintsRef.current = new Set();
 
       const result = parseSpreadsheetBuffer(buffer, {
         ignoredEducators,
@@ -442,6 +467,15 @@ export default function NovaOrdemPage() {
       }
 
       // Aplica verificação de duplicidades internas e históricas
+      // Preserva exclusões manuais feitas pelo usuário para que NÃO voltem ao mudar a faixa de aulas (imagem2)
+      const currentExcluded = excludedFingerprintsRef.current;
+      if (currentExcluded.size > 0) {
+        enrichedItems = enrichedItems.filter((item) => {
+          const fp = item.duplicateFingerprint || createDuplicateFingerprint(item.studentName, item.subjectName);
+          return !currentExcluded.has(fp);
+        });
+      }
+
       const duplicateAnalysis = analyzeDuplicates(enrichedItems, historicalMap);
 
       setItems(duplicateAnalysis.items);
@@ -669,7 +703,40 @@ export default function NovaOrdemPage() {
 
   // Exclusão manual de aluno individual na tabela de inspeção
   const handleRemoveItem = (id: string) => {
+    const itemToRemove = items.find((item) => item.id === id);
+    if (itemToRemove) {
+      const fp = itemToRemove.duplicateFingerprint || createDuplicateFingerprint(itemToRemove.studentName, itemToRemove.subjectName);
+      setExcludedFingerprints((prev) => {
+        const next = new Set(prev);
+        next.add(fp);
+        excludedFingerprintsRef.current = next;
+        return next;
+      });
+    }
+
     const remaining = items.filter((item) => item.id !== id);
+    const duplicateAnalysis = analyzeDuplicates(remaining, historicalMap);
+    setItems(duplicateAnalysis.items);
+    setInternalDuplicatesCount(duplicateAnalysis.internalDuplicatesCount);
+    setHistoricalDuplicatesCount(duplicateAnalysis.historicalDuplicatesCount);
+  };
+
+  // Exclusão em lote de todos os pedidos já entregues no histórico (imagem2)
+  const handleRemoveHistoricalItems = () => {
+    const historicalItems = items.filter((item) => item.isHistoricalDuplicate);
+    if (historicalItems.length === 0) return;
+
+    setExcludedFingerprints((prev) => {
+      const next = new Set(prev);
+      historicalItems.forEach((item) => {
+        const fp = item.duplicateFingerprint || createDuplicateFingerprint(item.studentName, item.subjectName);
+        next.add(fp);
+      });
+      excludedFingerprintsRef.current = next;
+      return next;
+    });
+
+    const remaining = items.filter((item) => !item.isHistoricalDuplicate);
     const duplicateAnalysis = analyzeDuplicates(remaining, historicalMap);
     setItems(duplicateAnalysis.items);
     setInternalDuplicatesCount(duplicateAnalysis.internalDuplicatesCount);
@@ -741,8 +808,14 @@ export default function NovaOrdemPage() {
       );
     }
 
-    // Ordenação dinâmica
+    // Ordenação dinâmica: Pedidos já registrados no histórico aparecem em PRIMEIRO no topo da lista (imagem2)
     return [...list].sort((a, b) => {
+      const aHist = a.isHistoricalDuplicate ? 1 : 0;
+      const bHist = b.isHistoricalDuplicate ? 1 : 0;
+      if (aHist !== bHist) {
+        return bHist - aHist; // 1 (com histórico) vem antes de 0 (sem histórico)
+      }
+
       let valA: any = a[sortField as keyof ProcessedStudentItem] || '';
       let valB: any = b[sortField as keyof ProcessedStudentItem] || '';
 
@@ -910,6 +983,7 @@ export default function NovaOrdemPage() {
           matchedPedagogicalCount,
           internalDuplicatesCount,
           historicalDuplicatesCount,
+          excludedFingerprints: Array.from(excludedFingerprintsRef.current),
         };
         localStorage.setItem('microlins_draft_nova_ordem', JSON.stringify(draft));
       } catch (e) {
@@ -928,6 +1002,7 @@ export default function NovaOrdemPage() {
             matchedPedagogicalCount,
             internalDuplicatesCount,
             historicalDuplicatesCount,
+            excludedFingerprints: Array.from(excludedFingerprintsRef.current),
           };
           localStorage.setItem('microlins_draft_nova_ordem', JSON.stringify(draftLight));
         } catch (innerE) {
@@ -978,6 +1053,8 @@ export default function NovaOrdemPage() {
           setControlePedagogico(null);
           setControlePedagogicoFileName('');
           setHasRestoredDraft(false);
+          setExcludedFingerprints(new Set());
+          excludedFingerprintsRef.current = new Set();
 
           // Restaura a faixa de aulas configurada na unidade
           try {
@@ -1466,8 +1543,20 @@ export default function NovaOrdemPage() {
               </button>
             </div>
 
-            {/* Ações Rápidas: Editar Pedido & Busca Rápida */}
-            <div className="flex items-center gap-2.5">
+            {/* Ações Rápidas: Remover Histórico, Editar Pedido & Busca Rápida */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {historicalDuplicatesCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleRemoveHistoricalItems}
+                  className="px-3 py-1.5 rounded-lg border border-red-300 bg-red-50 text-red-700 hover:bg-red-600 hover:text-white font-bold text-xs transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  title="Remover todos os alunos que já possuem entrega no histórico"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Remover Pedidos Já Feitos ({historicalDuplicatesCount})</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={handleEditInManualOrder}
@@ -1714,9 +1803,23 @@ export default function NovaOrdemPage() {
             )}
 
             {historicalDuplicatesCount > 0 && (
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#fce8e6] text-[#c5221f] text-xs font-semibold border border-red-200">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span>Duplicidade Histórica: {historicalDuplicatesCount} itens já entregues em pedidos passados</span>
+              <div className="inline-flex items-center justify-between gap-3 px-3.5 py-1.5 rounded-lg bg-[#fce8e6] text-[#c5221f] text-xs font-semibold border border-red-200">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    Duplicidade Histórica: <strong>{historicalDuplicatesCount}</strong>{' '}
+                    {historicalDuplicatesCount === 1 ? 'item já entregue' : 'itens já entregues'} no histórico
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemoveHistoricalItems}
+                  className="ml-2 px-2.5 py-0.5 rounded bg-[#c5221f] text-white hover:bg-red-800 text-[11px] font-bold transition-colors flex items-center gap-1 shadow-xs cursor-pointer shrink-0"
+                  title="Remover estes pedidos da lista atual"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Remover Já Feitos</span>
+                </button>
               </div>
             )}
           </div>

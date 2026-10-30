@@ -839,130 +839,132 @@ export function ForecastTab({
       {/* ========================================================================= */}
       {activeSubTab === 'cronograma' && (
         <div className="space-y-6">
-          {/* RESUMO EXECUTIVO DAS 3 PERGUNTAS CHAVE */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Resposta 1: Total de Alunos Únicos com Demanda nos 4 Meses */}
-            <div className="bg-white p-4 rounded-2xl border border-blue-200 shadow-sm flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-white to-blue-50/50">
-              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-[#0f3b7d]" />
-                  Alunos com Demanda (4 Meses)
+          {/* RESUMO EXECUTIVO CONSOLIDADO (2 CARDS ESTRATÉGICOS) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Resumo 1: Demanda Total Acumulada no Horizonte */}
+            <div className="bg-white p-5 rounded-2xl border border-blue-200/80 shadow-xs flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-white via-blue-50/20 to-blue-50/50">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
+                <span className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+                  <div className="p-1.5 rounded-lg bg-blue-100 text-[#0f3b7d]">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  Demanda Total Consolidada ({horizonMonths} Meses)
                 </span>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
                   Total Único
                 </span>
               </div>
-              <div className="flex items-baseline gap-2 my-2">
-                <span className="text-3xl font-black text-[#0f3b7d]">{forecastResult.uniqueStudentsCount}</span>
-                <span className="text-xs text-slate-500 font-semibold">alunos únicos</span>
+              <div className="flex items-baseline gap-3 my-2">
+                <span className="text-3xl font-black text-[#0f3b7d] tracking-tight">{forecastResult.uniqueStudentsCount}</span>
+                <span className="text-sm text-slate-600 font-semibold">alunos únicos com demanda</span>
               </div>
-              <div className="text-[11px] text-slate-600 border-t border-blue-100/80 pt-2 flex items-center justify-between">
-                <span>Total de apostilas projetadas:</span>
-                <strong className="text-[#0f3b7d] font-bold">{forecastResult.totalWorkbooksCount} apostilas</strong>
+              <div className="text-xs text-slate-600 border-t border-blue-100/80 pt-2.5 flex items-center justify-between">
+                <span>Total de apostilas projetadas no período:</span>
+                <strong className="text-[#0f3b7d] font-bold text-sm">{forecastResult.totalWorkbooksCount} apostilas</strong>
               </div>
             </div>
 
-            {/* Resposta 2: Destaque - Daqui a 2 Meses (Mês 3) */}
-            <div className="bg-white p-4 rounded-2xl border-2 border-amber-400 shadow-sm flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-amber-50/70 to-white">
-              <div className="flex items-center justify-between text-xs text-amber-900 mb-1">
-                <span className="font-bold flex items-center gap-1.5 text-amber-950">
-                  <Target className="w-4 h-4 text-amber-600" />
-                  Pedido para DAQUI A 2 MESES
+            {/* Resumo 2: Recomendação Estratégica - Pedido Alvo (Mês 3 / Daqui a 2 Meses) */}
+            <div className="bg-white p-5 rounded-2xl border-2 border-amber-400 shadow-xs flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-amber-50/80 via-white to-amber-50/30">
+              <div className="flex items-center justify-between text-xs text-amber-900 mb-2">
+                <span className="font-bold flex items-center gap-2 text-sm text-amber-950">
+                  <div className="p-1.5 rounded-lg bg-amber-200 text-amber-900">
+                    <Target className="w-4 h-4 text-amber-700" />
+                  </div>
+                  Pedido Alvo Recomendado (Daqui a 2 Meses)
                 </span>
-                <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-300 text-amber-950 shadow-xs">
-                  Mês 3 🎯
+                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-300 text-amber-950 shadow-2xs border border-amber-400">
+                  Mês 3 • Alvo 🎯
                 </span>
               </div>
-              <div className="flex items-baseline gap-2 my-2">
-                <span className="text-3xl font-black text-amber-800">{month3Summary?.totalWorkbooks || 0}</span>
-                <span className="text-xs text-amber-900 font-semibold">apostilas a pedir</span>
+              <div className="flex items-baseline gap-3 my-2">
+                <span className="text-3xl font-black text-amber-800 tracking-tight">{month3Summary?.totalWorkbooks || 0}</span>
+                <span className="text-sm text-amber-900 font-semibold">apostilas a pedir</span>
               </div>
-              <div className="text-[11px] text-amber-900 border-t border-amber-200/80 pt-2 flex items-center justify-between">
-                <span className="truncate">{month3Summary ? month3Summary.monthLabel : 'Daqui a 2 meses'}</span>
+              <div className="text-xs text-amber-900 border-t border-amber-200/80 pt-2.5 flex items-center justify-between">
+                <span className="font-medium">
+                  Competência: <strong>{month3Summary ? month3Summary.monthLabel.split('(')[0].trim() : 'Dezembro / 2026'}</strong>
+                </span>
                 <strong className="text-amber-950 font-bold shrink-0">{month3Summary?.uniqueStudentsCount || 0} alunos</strong>
-              </div>
-            </div>
-
-            {/* Card Mês 1 (Atual - Imediato) */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between">
-              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                <span className="font-bold text-slate-700">Mês 1 (Mês Atual)</span>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                  Imediato
-                </span>
-              </div>
-              <div className="flex items-baseline gap-2 my-2">
-                <span className="text-3xl font-black text-slate-800">{month1Summary?.totalWorkbooks || 0}</span>
-                <span className="text-xs text-slate-500 font-semibold">apostilas</span>
-              </div>
-              <div className="text-[11px] text-slate-600 border-t border-slate-100 pt-2 flex items-center justify-between">
-                <span className="truncate">{month1Summary ? month1Summary.monthLabel : 'Mês Atual'}</span>
-                <strong className="text-slate-800 font-bold shrink-0">{month1Summary?.uniqueStudentsCount || 0} alunos</strong>
-              </div>
-            </div>
-
-            {/* Card Mês 2 (Daqui a 1 Mês) */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between">
-              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                <span className="font-bold text-slate-700">Mês 2 (Daqui a 1 mês)</span>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                  +4 semanas
-                </span>
-              </div>
-              <div className="flex items-baseline gap-2 my-2">
-                <span className="text-3xl font-black text-slate-800">{month2Summary?.totalWorkbooks || 0}</span>
-                <span className="text-xs text-slate-500 font-semibold">apostilas</span>
-              </div>
-              <div className="text-[11px] text-slate-600 border-t border-slate-100 pt-2 flex items-center justify-between">
-                <span className="truncate">{month2Summary ? month2Summary.monthLabel : 'Daqui a 1 mês'}</span>
-                <strong className="text-slate-800 font-bold shrink-0">{month2Summary?.uniqueStudentsCount || 0} alunos</strong>
               </div>
             </div>
           </div>
 
-          {/* Cards de Resumo Mensal Detalhados por Mês */}
+          {/* CRONOGRAMA MENSAL DE DEMANDA (LINHA DO TEMPO) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {forecastResult.monthlySummaries.map((summary) => (
-              <div
-                key={summary.monthIndex}
-                className={`p-4 rounded-xl border shadow-2xs flex flex-col justify-between transition-all ${
-                  summary.monthIndex === 3
-                    ? 'bg-amber-50/40 border-amber-300'
-                    : 'bg-white border-slate-200 hover:border-[#0f3b7d]/50'
-                }`}
-              >
-                <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                  <span className="font-semibold text-slate-700 truncate" title={summary.monthLabel}>
-                    {summary.monthLabel}
-                  </span>
-                  <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                      summary.monthIndex === 3
-                        ? 'bg-amber-200 text-amber-950'
-                        : 'bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    Mês {summary.monthIndex}
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-2 my-2">
-                  <span className="text-2xl font-black text-[#0f3b7d]">{summary.totalWorkbooks}</span>
-                  <span className="text-xs text-slate-400 font-medium">apostilas ({summary.uniqueStudentsCount || 0} alunos)</span>
-                </div>
-                <div className="text-[11px] text-slate-500 border-t border-slate-100 pt-2 truncate">
-                  {summary.subjectsBreakdown.length > 0 ? (
-                    <span>
-                      Maior volume:{' '}
-                      <strong className="text-slate-700">
-                        {summary.subjectsBreakdown[0].subject} ({summary.subjectsBreakdown[0].count})
-                      </strong>
+            {forecastResult.monthlySummaries.map((summary) => {
+              const isTargetMonth = summary.monthIndex === 3;
+              const cleanMonth = summary.monthLabel.includes('(')
+                ? summary.monthLabel.split('(')[0].trim()
+                : summary.monthLabel;
+
+              const relativeBadge =
+                summary.monthIndex === 1
+                  ? 'Imediato'
+                  : summary.monthIndex === 2
+                  ? '+4 sem'
+                  : summary.monthIndex === 3
+                  ? 'Alvo Recomendado'
+                  : '+12 sem';
+
+              return (
+                <div
+                  key={summary.monthIndex}
+                  className={`p-4 rounded-2xl border flex flex-col justify-between transition-all ${
+                    isTargetMonth
+                      ? 'bg-gradient-to-b from-amber-50/70 to-white border-2 border-amber-400 shadow-xs ring-2 ring-amber-300/30'
+                      : 'bg-white border-slate-200 hover:border-[#0f3b7d]/50 shadow-2xs'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-xs mb-2 gap-2">
+                    <span className="font-bold text-slate-800 text-xs tracking-tight shrink-0" title={cleanMonth}>
+                      {cleanMonth}
                     </span>
-                  ) : (
-                    <span className="text-slate-400 italic">Sem demandas</span>
-                  )}
+                    <span
+                      className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full shrink-0 ${
+                        isTargetMonth
+                          ? 'bg-amber-300 text-amber-950 border border-amber-400'
+                          : 'bg-slate-100 text-slate-600 border border-slate-200'
+                      }`}
+                    >
+                      Mês {summary.monthIndex} • {relativeBadge}
+                    </span>
+                  </div>
+
+                  <div className="my-2">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className={`text-2xl font-black ${isTargetMonth ? 'text-amber-900' : 'text-[#0f3b7d]'}`}>
+                        {summary.totalWorkbooks}
+                      </span>
+                      <span className="text-xs text-slate-500 font-semibold">apostilas</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                      {summary.uniqueStudentsCount || 0} alunos com demanda
+                    </p>
+                  </div>
+
+                  <div
+                    className="text-[11px] text-slate-500 border-t border-slate-100 pt-2.5 truncate"
+                    title={
+                      summary.subjectsBreakdown.length > 0
+                        ? `${summary.subjectsBreakdown[0].subject} (${summary.subjectsBreakdown[0].count} apostilas)`
+                        : 'Sem demandas'
+                    }
+                  >
+                    {summary.subjectsBreakdown.length > 0 ? (
+                      <span>
+                        Maior volume:{' '}
+                        <strong className="text-slate-700">
+                          {summary.subjectsBreakdown[0].subject} ({summary.subjectsBreakdown[0].count})
+                        </strong>
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 italic">Sem demandas</span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* BARRA DE CONTROLE: ALTERNAR ENTRE VISÃO POR MATÉRIA E VISÃO POR ALUNO */}

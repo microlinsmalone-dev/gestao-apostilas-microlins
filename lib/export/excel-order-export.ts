@@ -43,6 +43,23 @@ const dataStyleCenter = {
   border: thinBorder,
 };
 
+/**
+ * Extrai apenas o primeiro nome do educador para exportação limpa no Excel.
+ * Ex: "Pyetra Alves Vieira de Oliveira" -> "Pyetra"
+ * Se houver múltiplos educadores (ex: "Pyetra, Carlos"), preserva o primeiro nome de cada um ("Pyetra, Carlos").
+ */
+function extractFirstName(name: string): string {
+  if (!name || !name.trim()) return '';
+  if (name.includes(',')) {
+    return name
+      .split(',')
+      .map((part) => part.trim().split(/\s+/)[0])
+      .filter(Boolean)
+      .join(', ');
+  }
+  return name.trim().split(/\s+/)[0];
+}
+
 function buildOrderWorksheet(title: string, itemsList: any[], isCodeOnly = false): any {
   const cleanTitle = (title || 'ENTREGA DE MATERIAL').toUpperCase();
   const ws: any = {};
@@ -68,11 +85,17 @@ function buildOrderWorksheet(title: string, itemsList: any[], isCodeOnly = false
   const totalDataRows = Math.max(linesPerPage, Math.ceil(Math.max(1, itemsList.length) / linesPerPage) * linesPerPage);
   const startRow = 5;
 
+  let maxStudentLen = 'Aluno'.length;
+  let maxSubjectLen = 'Matéria'.length;
+  let maxEducatorLen = 'Educador'.length;
+  let maxCodeLen = (isCodeOnly ? 'Código Apostila' : 'Liberação').length;
+
   itemsList.forEach((item, idx) => {
     const rowNum = startRow + idx;
     const studentName = item.student_name || item.studentName || '';
     const subjectName = item.subject_name || item.subjectName || '';
-    const educatorName = item.educator_name || item.educatorName || '';
+    const rawEducator = item.educator_name || item.educatorName || '';
+    const educatorName = extractFirstName(rawEducator);
     const code =
       item.codigoApostila ||
       (item.release_status?.startsWith('Código:')
@@ -80,6 +103,11 @@ function buildOrderWorksheet(title: string, itemsList: any[], isCodeOnly = false
         : isCodeOnly && item.release_status && item.release_status !== 'Pendente'
         ? item.release_status
         : '');
+
+    if (studentName.length > maxStudentLen) maxStudentLen = studentName.length;
+    if (subjectName.length > maxSubjectLen) maxSubjectLen = subjectName.length;
+    if (educatorName.length > maxEducatorLen) maxEducatorLen = educatorName.length;
+    if (code.length > maxCodeLen) maxCodeLen = code.length;
 
     ws[`B${rowNum}`] = { t: 's', v: studentName, s: dataStyleLeft };
     ws[`C${rowNum}`] = { t: 's', v: subjectName, s: dataStyleLeft };
@@ -104,15 +132,15 @@ function buildOrderWorksheet(title: string, itemsList: any[], isCodeOnly = false
   ws['!ref'] = `B2:G${finalRow}`;
   ws['!merges'] = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 6 } }];
 
-  // Larguras exatas das colunas do modelo
+  // Larguras dinâmicas ajustadas pelo tamanho do conteúdo com margem de segurança
   ws['!cols'] = [
-    { wch: 9.14 },   // Coluna A (margem lateral da planilha)
-    { wch: 40.71 },  // Coluna B (Aluno)
-    { wch: 40.71 },  // Coluna C (Matéria)
-    { wch: 16.29 },  // Coluna D (Educador)
-    { wch: 14.29 },  // Coluna E (Data)
-    { wch: 21.29 },  // Coluna F (Entrega)
-    { wch: isCodeOnly ? 24.0 : 12.0 },  // Coluna G (Liberação / Código)
+    { wch: 9.14 },                                // Coluna A (margem lateral da planilha)
+    { wch: Math.max(40.71, maxStudentLen + 3) },  // Coluna B (Aluno - se adapta a nomes longos)
+    { wch: Math.max(40.71, maxSubjectLen + 3) },  // Coluna C (Matéria - se adapta a nomes longos)
+    { wch: Math.max(16.29, maxEducatorLen + 4) }, // Coluna D (Educador - adapta ao tamanho do nome)
+    { wch: 14.29 },                               // Coluna E (Data)
+    { wch: 21.29 },                               // Coluna F (Entrega)
+    { wch: isCodeOnly ? Math.max(24.0, maxCodeLen + 4) : 12.0 }, // Coluna G (Liberação / Código)
   ];
 
   // Alturas das linhas principais
