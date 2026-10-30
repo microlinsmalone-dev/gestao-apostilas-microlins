@@ -89,29 +89,24 @@ function HistoricoContent() {
           .select('order_id, educator_name')
           .in('order_id', orderIds);
 
-        // Agrupa educadores por pedido e acha o predominante
+        // Agrupa educadores por pedido e lista todos os educadores distintos separados por vírgula
         const educatorMap = new Map<string, string>();
         if (allItems) {
-          const grouped = new Map<string, Map<string, number>>();
+          const grouped = new Map<string, Set<string>>();
           allItems.forEach((item) => {
-            if (!item.educator_name) return;
+            const name = item.educator_name?.trim();
+            if (!name) return;
             if (!grouped.has(item.order_id)) {
-              grouped.set(item.order_id, new Map());
+              grouped.set(item.order_id, new Set());
             }
-            const edCount = grouped.get(item.order_id)!;
-            edCount.set(item.educator_name, (edCount.get(item.educator_name) || 0) + 1);
+            grouped.get(item.order_id)!.add(name);
           });
 
-          grouped.forEach((edCounts, orderId) => {
-            let maxName = '';
-            let maxCount = 0;
-            edCounts.forEach((count, name) => {
-              if (count > maxCount) {
-                maxCount = count;
-                maxName = name;
-              }
-            });
-            if (maxName) educatorMap.set(orderId, maxName);
+          grouped.forEach((namesSet, orderId) => {
+            const list = Array.from(namesSet);
+            if (list.length > 0) {
+              educatorMap.set(orderId, list.join(', '));
+            }
           });
         }
 
@@ -452,7 +447,10 @@ function HistoricoContent() {
         <div className="bg-white rounded-xl border border-slate-300 shadow-lg p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-3">
             <div>
-              <h3 className="font-bold text-slate-900 text-sm">{activeOrder.title}</h3>
+              <h3 className="font-bold text-slate-900 text-sm">
+                <span className="font-mono text-[#0f3b7d] mr-1.5">#{activeOrder.sequence_num}</span>
+                {activeOrder.title}
+              </h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 Competência: {activeOrder.competence_month}/{activeOrder.competence_year} •{' '}
                 {activeItems.length} materiais cadastrados
