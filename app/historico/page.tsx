@@ -208,7 +208,7 @@ function HistoricoContent() {
       setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortField(field);
-      setSortDirection('asc');
+      setSortDirection(field === 'sequence_num' ? 'desc' : 'asc');
     }
   };
 

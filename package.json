@@ -3,8 +3,8 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "node -r ./lib/patch-node.js node_modules/next/dist/bin/next dev",
+    "build": "node -r ./lib/patch-node.js node_modules/next/dist/bin/next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
