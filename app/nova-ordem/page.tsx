@@ -1073,7 +1073,7 @@ export default function NovaOrdemPage() {
               step === 3 ? 'bg-[#0f3b7d] text-white' : 'bg-slate-100 text-slate-400'
             }`}
           >
-            3. Curadoria & Finalização
+            3. Tratamento & Finalização
           </span>
         </div>
       </div>
@@ -1154,9 +1154,6 @@ export default function NovaOrdemPage() {
               placeholder="Ex: ENTREGA DE MATERIAL - PEDIDO"
               className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#0f3b7d] font-medium"
             />
-            <p className="text-[11px] text-slate-400 mt-2">
-              * O sistema preserva exatamente maiúsculas e minúsculas conforme digitado.
-            </p>
           </div>
         </div>
 
@@ -1191,7 +1188,7 @@ export default function NovaOrdemPage() {
             </div>
           </div>
           <p className="text-[10px] text-slate-400 mt-2">
-            * Arquivo principal que define os alunos e as apostilas a pedir.
+            * Arquivo Principal: Puxa os alunos e apostilas
           </p>
         </div>
 
@@ -1240,7 +1237,7 @@ export default function NovaOrdemPage() {
             </div>
           </div>
           <p className="text-[10px] text-slate-400 mt-2">
-            * Consulta horários de aula, turmas e próxima matéria.
+            * Mostra os horários de aula, turma e a próxima matéria do aluno
           </p>
         </div>
 
@@ -1289,7 +1286,7 @@ export default function NovaOrdemPage() {
             </div>
           </div>
           <p className="text-[10px] text-slate-400 mt-2">
-            * Vincula cada aluno ao educador pelo contrato.
+            * Mostra o educador de cada aluno
           </p>
         </div>
       </div>

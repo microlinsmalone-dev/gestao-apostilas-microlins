@@ -365,15 +365,6 @@ function HistoricoContent() {
                       <SortIcon field="educator" />
                     </span>
                   </th>
-                  <th
-                    className="py-3 px-4 cursor-pointer hover:text-[#0f3b7d] transition-colors select-none"
-                    onClick={() => handleSort('status')}
-                  >
-                    <span className="inline-flex items-center">
-                      Status
-                      <SortIcon field="status" />
-                    </span>
-                  </th>
                   <th className="py-3 px-4 text-right">Ações</th>
                 </tr>
               </thead>
@@ -396,15 +387,6 @@ function HistoricoContent() {
                       ) : (
                         <span className="text-slate-400 italic">—</span>
                       )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold ${
-                        order.status === 'archived'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-blue-50 text-blue-700 border border-blue-200'
-                      }`}>
-                        {order.status === 'archived' ? 'Arquivado' : order.status}
-                      </span>
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="inline-flex items-center gap-1.5">

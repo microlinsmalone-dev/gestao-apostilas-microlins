@@ -80,12 +80,8 @@ export default function DashboardPage() {
         <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-blue-200 text-xs font-semibold backdrop-blur-sm mb-3">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              Central Integrada de Materiais
-            </div>
             <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
-              Microlins Potirendaba • Gestão de Apostilas
+              Gestão de Apostilas
             </h1>
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -266,7 +262,6 @@ export default function DashboardPage() {
                   <th className="py-3 px-4">Título do Pedido</th>
                   <th className="py-3 px-4">Competência</th>
                   <th className="py-3 px-4 text-center">Itens</th>
-                  <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Ação</th>
                 </tr>
               </thead>
@@ -281,11 +276,6 @@ export default function DashboardPage() {
                     </td>
                     <td className="py-3 px-4 text-center font-semibold text-slate-700">
                       {order.total_items}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        {order.status}
-                      </span>
                     </td>
                     <td className="py-3 px-4 text-right">
                       <Link

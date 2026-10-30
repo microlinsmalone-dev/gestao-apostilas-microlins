@@ -84,9 +84,9 @@ function buildOrderWorksheet(title: string, itemsList: any[], isCodeOnly = false
     ws[`B${rowNum}`] = { t: 's', v: studentName, s: dataStyleLeft };
     ws[`C${rowNum}`] = { t: 's', v: subjectName, s: dataStyleLeft };
     ws[`D${rowNum}`] = { t: 's', v: educatorName, s: dataStyleCenter };
-    ws[`E${rowNum}`] = { t: 's', v: item.delivery_date || item.deliveryDate || '', s: dataStyleCenter };
-    ws[`F${rowNum}`] = { t: 's', v: item.delivery_status || item.deliveryStatus || '', s: dataStyleCenter };
-    ws[`G${rowNum}`] = { t: 's', v: isCodeOnly ? (code || '') : (item.release_status || item.releaseStatus || ''), s: dataStyleCenter };
+    ws[`E${rowNum}`] = { t: 's', v: '', s: dataStyleCenter };
+    ws[`F${rowNum}`] = { t: 's', v: '', s: dataStyleCenter };
+    ws[`G${rowNum}`] = { t: 's', v: isCodeOnly ? (code || '') : '', s: dataStyleCenter };
   });
 
   // Linhas extras em branco para completar exatamente 26 linhas por folha
