@@ -455,4 +455,74 @@ describe('Motor de Previsão de Apostilas & Cronograma de Compras', () => {
     expect(wordDemandIncluded?.historicalMatchOrderTitle).toBe('Pedido 2026-10 - Outubro (Educador: Malone)');
     expect(resultIncluded.historicalExcludedCount).toBe(0);
   });
+
+  it('deve calcular o detalhamento semanal do Mês 1 discriminando demandas em 1, 2 e 3 semanas e acumulado', () => {
+    const catalog = getDefaultCourseDurations();
+    const mockStudentsWeekly = [
+      {
+        studentName: 'Aluno Imediato Hoje',
+        courseName: 'INFORMÁTICA ESSENCIAL',
+        rawSubjectName: '161870_Word 2021',
+        currentLesson: 5, // >= 4 (gatilho) -> Semana 0 (Imediato)
+        physicalDelivery: 'Não',
+        remainingSubjectsCount: 2,
+      },
+      {
+        studentName: 'Aluno Semana 1',
+        courseName: 'INFORMÁTICA ESSENCIAL',
+        rawSubjectName: '161870_Word 2021',
+        currentLesson: 3, // falta 1 aula para gatilho 4. Com 2x/sem -> 1 semana
+        physicalDelivery: 'Não',
+        remainingSubjectsCount: 2,
+      },
+      {
+        studentName: 'Aluno Semana 2',
+        courseName: 'INFORMÁTICA ESSENCIAL',
+        rawSubjectName: '161871_Excel 2021',
+        currentLesson: 1, // faltam 3 aulas para gatilho 4. Com 2x/sem -> ceil(3/2) = 2 semanas
+        physicalDelivery: 'Não',
+        remainingSubjectsCount: 2,
+      },
+      {
+        studentName: 'Aluno Semana 3',
+        courseName: 'INFORMÁTICA ESSENCIAL',
+        rawSubjectName: '161872_PowerPoint 2021',
+        currentLesson: 1, // faltam 3 aulas. Com 1x/sem -> ceil(3/1) = 3 semanas
+        physicalDelivery: 'Não',
+        remainingSubjectsCount: 2,
+      },
+    ];
+
+    const frequencyConfigs = {
+      'aluno semana 3': 1, // 1 aula por semana
+    };
+
+    const result = computeStudentsForecast({
+      rawOrProcessedItems: mockStudentsWeekly,
+      coursesConfig: catalog,
+      frequencyConfigs,
+      triggerLesson: 4,
+      horizonMonths: 4,
+    });
+
+    expect(result.weeklyBreakdownMonth1).toBeDefined();
+    expect(result.weeklyBreakdownMonth1.length).toBe(5);
+
+    const w0 = result.weeklyBreakdownMonth1.find((w) => w.week === 0);
+    const w1 = result.weeklyBreakdownMonth1.find((w) => w.week === 1);
+    const w2 = result.weeklyBreakdownMonth1.find((w) => w.week === 2);
+    const w3 = result.weeklyBreakdownMonth1.find((w) => w.week === 3);
+
+    expect(w0?.totalWorkbooks).toBe(1);
+    expect(w0?.cumulativeWorkbooks).toBe(1);
+
+    expect(w1?.totalWorkbooks).toBe(1);
+    expect(w1?.cumulativeWorkbooks).toBe(2); // Imediato + Semana 1 = 2
+
+    expect(w2?.totalWorkbooks).toBe(1);
+    expect(w2?.cumulativeWorkbooks).toBe(3); // Imediato + Sem 1 + Sem 2 = 3
+
+    expect(w3?.totalWorkbooks).toBe(1);
+    expect(w3?.cumulativeWorkbooks).toBe(4); // Imediato + Sem 1 + Sem 2 + Sem 3 = 4
+  });
 });

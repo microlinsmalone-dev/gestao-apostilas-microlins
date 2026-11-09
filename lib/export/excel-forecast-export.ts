@@ -154,16 +154,18 @@ function buildDetailedStudentsWorksheet(forecastItems: ForecastStudentItem[]): a
   ws['G2'] = { t: 's', v: '', s: titleStyle };
   ws['H2'] = { t: 's', v: '', s: titleStyle };
   ws['I2'] = { t: 's', v: '', s: titleStyle };
+  ws['J2'] = { t: 's', v: '', s: titleStyle };
 
-  // Cabeçalhos B4:I4
+  // Cabeçalhos B4:J4
   ws['B4'] = { t: 's', v: 'Aluno', s: headerStyle };
   ws['C4'] = { t: 's', v: 'Matéria Solicitada', s: headerStyle };
   ws['D4'] = { t: 's', v: 'Etapa / Ciclo', s: headerStyle };
   ws['E4'] = { t: 's', v: 'Aula / Total', s: headerStyle };
   ws['F4'] = { t: 's', v: 'Ritmo Semanal', s: headerStyle };
   ws['G4'] = { t: 's', v: 'Matérias Restantes', s: headerStyle };
-  ws['H4'] = { t: 's', v: 'Mês Estimado', s: headerStyle };
-  ws['I4'] = { t: 's', v: 'Status da Demanda', s: headerStyle };
+  ws['H4'] = { t: 's', v: 'Prazo Semanal', s: headerStyle };
+  ws['I4'] = { t: 's', v: 'Mês Estimado', s: headerStyle };
+  ws['J4'] = { t: 's', v: 'Status da Demanda', s: headerStyle };
 
   let currentRow = 5;
 
@@ -180,6 +182,19 @@ function buildDetailedStudentsWorksheet(forecastItems: ForecastStudentItem[]): a
         ? 'Matéria Atual'
         : 'Próxima Matéria';
 
+    const weekLabel =
+      item.weeksUntilNextOrder === 0
+        ? 'Imediato (Hoje)'
+        : item.weeksUntilNextOrder === 1
+        ? 'Em 1 semana (~7 dias)'
+        : item.weeksUntilNextOrder === 2
+        ? 'Em 2 semanas (~14 dias)'
+        : item.weeksUntilNextOrder === 3
+        ? 'Em 3 semanas (~21 dias)'
+        : item.weeksUntilNextOrder === 4
+        ? 'Em 4 semanas (~28 dias)'
+        : `Em ~${item.weeksUntilNextOrder} semanas`;
+
     ws[`B${currentRow}`] = { t: 's', v: item.studentName, s: dataStyleLeft };
     ws[`C${currentRow}`] = { t: 's', v: item.subjectName, s: dataStyleLeft };
     ws[`D${currentRow}`] = { t: 's', v: stageLabel, s: dataStyleCenter };
@@ -190,12 +205,13 @@ function buildDetailedStudentsWorksheet(forecastItems: ForecastStudentItem[]): a
       s: dataStyleCenter,
     };
     ws[`G${currentRow}`] = { t: 'n', v: item.remainingSubjectsCount, s: dataStyleCenter };
-    ws[`H${currentRow}`] = { t: 's', v: item.estimatedMonthLabel, s: dataStyleCenter };
-    ws[`I${currentRow}`] = { t: 's', v: statusLabel, s: dataStyleCenter };
+    ws[`H${currentRow}`] = { t: 's', v: weekLabel, s: dataStyleCenter };
+    ws[`I${currentRow}`] = { t: 's', v: item.estimatedMonthLabel, s: dataStyleCenter };
+    ws[`J${currentRow}`] = { t: 's', v: statusLabel, s: dataStyleCenter };
     currentRow++;
   });
 
-  ws['!merges'] = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 8 } }];
+  ws['!merges'] = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 9 } }];
 
   ws['!cols'] = [
     { wch: 4 },
@@ -205,10 +221,11 @@ function buildDetailedStudentsWorksheet(forecastItems: ForecastStudentItem[]): a
     { wch: 15 }, // Aula / Total
     { wch: 18 }, // Ritmo
     { wch: 18 }, // Restantes
+    { wch: 22 }, // Prazo Semanal
     { wch: 22 }, // Mês Estimado
     { wch: 22 }, // Status
   ];
-  ws['!ref'] = `A1:I${currentRow + 1}`;
+  ws['!ref'] = `A1:J${currentRow + 1}`;
 
   return ws;
 }

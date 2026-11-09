@@ -12,6 +12,7 @@ import {
   ProcessedStudentItem,
   ForecastResult,
   ForecastExcludedHistoricalItem,
+  WeeklyDemandSummary,
 } from '../../types';
 import { cleanSubject, normalizeText } from './sanitizer';
 import { createDuplicateFingerprint } from './duplicates';
@@ -790,6 +791,86 @@ export function computeStudentsForecast(params: {
     };
   });
 
+  // Constrói detalhamento semanal do Mês 1 (Semanas 0, 1, 2, 3 e 4)
+  const month1Items = forecastItems.filter((it) => it.estimatedMonthIndex === 1);
+
+  const weeklyDefinitions: {
+    week: 0 | 1 | 2 | 3 | 4;
+    label: string;
+    shortLabel: string;
+    timeframe: string;
+  }[] = [
+    {
+      week: 0,
+      label: 'Imediato (Hoje)',
+      shortLabel: 'Hoje',
+      timeframe: 'Aulas já no gatilho',
+    },
+    {
+      week: 1,
+      label: 'Em 1 semana (~7 dias)',
+      shortLabel: '1 sem',
+      timeframe: 'Próximos 7 dias',
+    },
+    {
+      week: 2,
+      label: 'Em 2 semanas (~14 dias)',
+      shortLabel: '2 sem',
+      timeframe: '8 a 14 dias (Quinzena)',
+    },
+    {
+      week: 3,
+      label: 'Em 3 semanas (~21 dias)',
+      shortLabel: '3 sem',
+      timeframe: '15 a 21 dias',
+    },
+    {
+      week: 4,
+      label: 'Em 4 semanas (~28 dias)',
+      shortLabel: '4 sem',
+      timeframe: '22 a 28 dias (Fim do Mês)',
+    },
+  ];
+
+  let runningCumulativeWorkbooks = 0;
+  const runningCumulativeStudents = new Set<string>();
+
+  const weeklyBreakdownMonth1: WeeklyDemandSummary[] = weeklyDefinitions.map((wDef) => {
+    // Alunos nesta semana específica
+    const weekItems = month1Items.filter((it) => {
+      if (wDef.week === 0) return it.weeksUntilNextOrder === 0;
+      if (wDef.week === 4) return it.weeksUntilNextOrder >= 4;
+      return it.weeksUntilNextOrder === wDef.week;
+    });
+
+    const uniqueStudentsInWeek = new Set(weekItems.map((it) => it.studentName.toLowerCase())).size;
+
+    // Matérias mais demandadas nesta semana
+    const subjectsMap = new Map<string, number>();
+    weekItems.forEach((it) => {
+      subjectsMap.set(it.subjectName, (subjectsMap.get(it.subjectName) || 0) + 1);
+    });
+    const subjectsBreakdown = Array.from(subjectsMap.entries())
+      .map(([subject, count]) => ({ subject, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // Acumulado
+    runningCumulativeWorkbooks += weekItems.length;
+    weekItems.forEach((it) => runningCumulativeStudents.add(it.studentName.toLowerCase()));
+
+    return {
+      week: wDef.week,
+      label: wDef.label,
+      shortLabel: wDef.shortLabel,
+      timeframe: wDef.timeframe,
+      totalWorkbooks: weekItems.length,
+      uniqueStudentsCount: uniqueStudentsInWeek,
+      cumulativeWorkbooks: runningCumulativeWorkbooks,
+      cumulativeStudentsCount: runningCumulativeStudents.size,
+      subjectsBreakdown,
+    };
+  });
+
   return {
     forecastItems,
     monthlySummaries,
@@ -798,5 +879,6 @@ export function computeStudentsForecast(params: {
     issues,
     historicalExcludedCount,
     historicalExcludedItems,
+    weeklyBreakdownMonth1,
   };
 }

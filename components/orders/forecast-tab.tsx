@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   CalendarClock,
   TrendingUp,
@@ -25,6 +25,10 @@ import {
   X,
   Info,
   ShieldCheck,
+  Clock,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import {
   CourseDurationConfig,
@@ -70,11 +74,17 @@ export function ForecastTab({
   // Controle de accordion de matérias expandidas na visão por matéria
   const [expandedSubjects, setExpandedSubjects] = useState<Record<string, boolean>>({});
 
-  // Parâmetros de projeção
+  // Parâmetros de projeção e filtros refinados
   const [horizonMonths, setHorizonMonths] = useState<1 | 2 | 3 | 4>(4);
   const [triggerLesson, setTriggerLesson] = useState<number>(4);
   const [searchStudent, setSearchStudent] = useState<string>('');
   const [filterMonth, setFilterMonth] = useState<string>('all');
+  const [filterWeek, setFilterWeek] = useState<string>('all'); // 'all', '0', '1', '2', '3', '4', 'until_1', 'until_2', 'until_3'
+  const [filterStage, setFilterStage] = useState<'all' | 'atual' | 'proxima'>('all');
+  const [filterPace, setFilterPace] = useState<'all' | '1x' | '2x' | '4x' | 'special'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'imediato' | 'projetado'>('all');
+  const [sortColumn, setSortColumn] = useState<'student' | 'subject' | 'lesson' | 'pace' | 'stage' | 'week' | 'status'>('week');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -312,23 +322,140 @@ export function ForecastTab({
   // Rótulos amigáveis dos meses (Mês 1 Atual, Daqui a 1 mês, Daqui a 2 meses, Daqui a 3 meses)
   const monthLabels = useMemo(() => getUpcomingMonthLabels(new Date(), horizonMonths), [horizonMonths]);
 
-  // Alunos e demandas filtrados para a tabela do Cronograma
-  const filteredForecastItems = useMemo(() => {
-    return forecastResult.forecastItems.filter((item) => {
+  // Helpers de filtragem refinada
+  const matchesWeekFilter = useCallback((item: ForecastStudentItem, filter: string): boolean => {
+    if (filter === 'all') return true;
+    if (item.estimatedMonthIndex !== 1) return false;
+    if (filter === '0') return item.weeksUntilNextOrder === 0;
+    if (filter === '1') return item.weeksUntilNextOrder === 1;
+    if (filter === '2') return item.weeksUntilNextOrder === 2;
+    if (filter === '3') return item.weeksUntilNextOrder === 3;
+    if (filter === '4') return item.weeksUntilNextOrder >= 4;
+    if (filter === 'until_1') return item.weeksUntilNextOrder <= 1;
+    if (filter === 'until_2') return item.weeksUntilNextOrder <= 2;
+    if (filter === 'until_3') return item.weeksUntilNextOrder <= 3;
+    return true;
+  }, []);
+
+  const matchesPaceFilter = useCallback((item: ForecastStudentItem, filter: string): boolean => {
+    if (filter === 'all') return true;
+    if (filter === '1x') return item.lessonsPerWeek === 1;
+    if (filter === '2x') return item.lessonsPerWeek === 2;
+    if (filter === '4x') return item.lessonsPerWeek === 4;
+    if (filter === 'special') return item.isSpecial || item.lessonsPerWeek > 2;
+    return true;
+  }, []);
+
+  const matchesStageFilter = useCallback((item: ForecastStudentItem, filter: string): boolean => {
+    if (filter === 'all') return true;
+    return item.stage === filter;
+  }, []);
+
+  const matchesStatusFilter = useCallback((item: ForecastStudentItem, filter: string): boolean => {
+    if (filter === 'all') return true;
+    return item.status === filter;
+  }, []);
+
+  // Helper de ordenação dinâmica das colunas
+  const sortStudentItems = useCallback(
+    (
+      items: ForecastStudentItem[],
+      column: 'student' | 'subject' | 'lesson' | 'pace' | 'stage' | 'week' | 'status',
+      direction: 'asc' | 'desc'
+    ): ForecastStudentItem[] => {
+      return [...items].sort((a, b) => {
+        let cmp = 0;
+        switch (column) {
+          case 'student':
+            cmp = a.studentName.localeCompare(b.studentName);
+            break;
+          case 'subject':
+            cmp = a.subjectName.localeCompare(b.subjectName);
+            break;
+          case 'lesson':
+            cmp = a.currentLesson - b.currentLesson;
+            break;
+          case 'pace':
+            cmp = a.lessonsPerWeek - b.lessonsPerWeek;
+            break;
+          case 'stage':
+            cmp = (a.stage || '').localeCompare(b.stage || '');
+            break;
+          case 'week':
+            cmp = a.weeksUntilNextOrder - b.weeksUntilNextOrder;
+            break;
+          case 'status':
+            cmp = a.status.localeCompare(b.status);
+            break;
+        }
+        return direction === 'asc' ? cmp : -cmp;
+      });
+    },
+    []
+  );
+
+  const handleSort = (col: typeof sortColumn) => {
+    if (sortColumn === col) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortColumn(col);
+      setSortDirection('asc');
+    }
+  };
+
+  const hasActiveFilters =
+    searchStudent.trim().length > 0 ||
+    filterMonth !== 'all' ||
+    filterWeek !== 'all' ||
+    filterStage !== 'all' ||
+    filterPace !== 'all' ||
+    filterStatus !== 'all';
+
+  const handleClearFilters = () => {
+    setSearchStudent('');
+    setFilterMonth('all');
+    setFilterWeek('all');
+    setFilterStage('all');
+    setFilterPace('all');
+    setFilterStatus('all');
+  };
+
+  // Alunos e demandas filtrados para a tabela do Cronograma (Visão por Aluno)
+  const filteredForecastItems: ForecastStudentItem[] = useMemo(() => {
+    const filtered = forecastResult.forecastItems.filter((item) => {
       if (searchStudent) {
         const q = searchStudent.toLowerCase();
         const matchesName = item.studentName.toLowerCase().includes(q);
         const matchesSubj = item.subjectName.toLowerCase().includes(q);
         if (!matchesName && !matchesSubj) return false;
       }
-      if (filterMonth !== 'all') {
-        if (item.estimatedMonthIndex !== parseInt(filterMonth, 10)) {
-          return false;
-        }
+      if (filterMonth !== 'all' && item.estimatedMonthIndex !== parseInt(filterMonth, 10)) {
+        return false;
       }
+      if (!matchesWeekFilter(item, filterWeek)) return false;
+      if (!matchesStageFilter(item, filterStage)) return false;
+      if (!matchesPaceFilter(item, filterPace)) return false;
+      if (!matchesStatusFilter(item, filterStatus)) return false;
       return true;
     });
-  }, [forecastResult.forecastItems, searchStudent, filterMonth]);
+
+    return sortStudentItems(filtered, sortColumn, sortDirection);
+  }, [
+    forecastResult.forecastItems,
+    searchStudent,
+    filterMonth,
+    filterWeek,
+    filterStage,
+    filterPace,
+    filterStatus,
+    sortColumn,
+    sortDirection,
+    matchesWeekFilter,
+    matchesStageFilter,
+    matchesPaceFilter,
+    matchesStatusFilter,
+    sortStudentItems,
+  ]);
 
   // Lista única de alunos para a sub-aba de Frequência, isolando formações distintas (ex: Caleb com 2 contratos)
   const frequencyStudentsList = useMemo(() => {
@@ -408,6 +535,10 @@ export function ForecastTab({
           const q = searchStudent.toLowerCase();
           return item.studentName.toLowerCase().includes(q) || item.subjectName.toLowerCase().includes(q);
         }
+        if (!matchesWeekFilter(item, filterWeek)) return false;
+        if (!matchesStageFilter(item, filterStage)) return false;
+        if (!matchesPaceFilter(item, filterPace)) return false;
+        if (!matchesStatusFilter(item, filterStatus)) return false;
         return true;
       });
 
@@ -425,7 +556,7 @@ export function ForecastTab({
         .map(([subjectName, students]) => ({
           subjectName,
           count: students.length,
-          students,
+          students: sortStudentItems(students, sortColumn, sortDirection),
         }))
         .sort((a, b) => b.count - a.count);
 
@@ -440,7 +571,23 @@ export function ForecastTab({
     });
 
     return result;
-  }, [monthLabels, forecastResult.forecastItems, filterMonth, searchStudent]);
+  }, [
+    monthLabels,
+    forecastResult.forecastItems,
+    filterMonth,
+    searchStudent,
+    filterWeek,
+    filterStage,
+    filterPace,
+    filterStatus,
+    sortColumn,
+    sortDirection,
+    matchesWeekFilter,
+    matchesStageFilter,
+    matchesPaceFilter,
+    matchesStatusFilter,
+    sortStudentItems,
+  ]);
 
   // Alterna expansão de uma matéria específica
   const toggleSubjectExpanded = (key: string) => {
@@ -1049,16 +1196,186 @@ export function ForecastTab({
             })}
           </div>
 
+          {/* PAINEL SEMANAL DE CURTO PRAZO (DENTRO DO MÊS ATUAL) */}
+          <div className="bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-white p-4 rounded-2xl border border-blue-200 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-[#0f3b7d] text-white rounded-xl shadow-2xs shrink-0">
+                  <CalendarClock className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[#0f3b7d] text-xs sm:text-sm">
+                    Previsão Semanal de Curto Prazo (Dentro do Mês Atual)
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Clique em um prazo abaixo para filtrar instantaneamente quem precisa de material nesta semana ou quinzena.
+                  </p>
+                </div>
+              </div>
+              {filterWeek !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setFilterWeek('all')}
+                  className="px-2.5 py-1 text-[11px] font-bold text-[#0f3b7d] bg-white border border-blue-200 hover:bg-blue-50 rounded-lg shadow-2xs self-start sm:self-auto cursor-pointer transition-colors"
+                >
+                  ✕ Ver Todas as Semanas
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {/* Card 0: Imediato */}
+              {(() => {
+                const w0 = forecastResult.weeklyBreakdownMonth1?.[0];
+                const isSelected = filterWeek === '0';
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setFilterWeek(isSelected ? 'all' : '0')}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-300 shadow-xs'
+                        : 'bg-white border-rose-200/80 hover:border-rose-300 hover:bg-rose-50/40 shadow-2xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-bold text-rose-900 flex items-center gap-1">
+                        <span>🚨</span> Imediato (Hoje)
+                      </span>
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-rose-100 text-rose-800">
+                        Aula ≥ {triggerLesson}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1 my-1">
+                      <span className="text-xl font-black text-rose-800 tracking-tight">
+                        {w0?.totalWorkbooks || 0}
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-semibold">apostilas</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {w0?.uniqueStudentsCount || 0} alunos já no gatilho
+                    </p>
+                  </button>
+                );
+              })()}
+
+              {/* Card 1: Em 1 semana */}
+              {(() => {
+                const w1 = forecastResult.weeklyBreakdownMonth1?.[1];
+                const isSelected = filterWeek === '1';
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setFilterWeek(isSelected ? 'all' : '1')}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-300 shadow-xs'
+                        : 'bg-white border-blue-200/80 hover:border-blue-300 hover:bg-blue-50/40 shadow-2xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-bold text-blue-900 flex items-center gap-1">
+                        <span>⚡</span> Em 1 Semana
+                      </span>
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800">
+                        ~7 dias
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1 my-1">
+                      <span className="text-xl font-black text-[#0f3b7d] tracking-tight">
+                        {w1?.totalWorkbooks || 0}
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-semibold">apostilas</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {w1?.uniqueStudentsCount || 0} alunos • Acumulado: {w1?.cumulativeWorkbooks || 0}
+                    </p>
+                  </button>
+                );
+              })()}
+
+              {/* Card 2: Em 2 semanas (Quinzena) */}
+              {(() => {
+                const w2 = forecastResult.weeklyBreakdownMonth1?.[2];
+                const isSelected = filterWeek === '2';
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setFilterWeek(isSelected ? 'all' : '2')}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-300 shadow-xs'
+                        : 'bg-white border-indigo-200/80 hover:border-indigo-300 hover:bg-indigo-50/40 shadow-2xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-bold text-indigo-900 flex items-center gap-1">
+                        <span>📅</span> Em 2 Semanas
+                      </span>
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800">
+                        Quinzena
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1 my-1">
+                      <span className="text-xl font-black text-indigo-800 tracking-tight">
+                        {w2?.totalWorkbooks || 0}
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-semibold">apostilas</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {w2?.uniqueStudentsCount || 0} alunos • Acumulado: {w2?.cumulativeWorkbooks || 0}
+                    </p>
+                  </button>
+                );
+              })()}
+
+              {/* Card 3: Em 3 semanas */}
+              {(() => {
+                const w3 = forecastResult.weeklyBreakdownMonth1?.[3];
+                const isSelected = filterWeek === '3';
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setFilterWeek(isSelected ? 'all' : '3')}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-amber-50 border-amber-400 ring-2 ring-amber-300 shadow-xs'
+                        : 'bg-white border-amber-200/80 hover:border-amber-300 hover:bg-amber-50/40 shadow-2xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-bold text-amber-950 flex items-center gap-1">
+                        <span>📆</span> Em 3 Semanas
+                      </span>
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
+                        ~21 dias
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-1 my-1">
+                      <span className="text-xl font-black text-amber-900 tracking-tight">
+                        {w3?.totalWorkbooks || 0}
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-semibold">apostilas</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {w3?.uniqueStudentsCount || 0} alunos • Acumulado: {w3?.cumulativeWorkbooks || 0}
+                    </p>
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+
           {/* BARRA DE CONTROLE: ALTERNAR ENTRE VISÃO POR MATÉRIA E VISÃO POR ALUNO */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-            <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/60">
+            <div className="p-4 border-b border-slate-200 flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-slate-50/60">
               {/* Seletor do Modo de Visualização */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <div className="flex items-center bg-slate-200/80 p-1 rounded-xl">
                   <button
                     type="button"
                     onClick={() => setScheduleViewMode('subjects')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       scheduleViewMode === 'subjects'
                         ? 'bg-[#0f3b7d] text-white shadow-xs'
                         : 'text-slate-700 hover:text-slate-900'
@@ -1070,7 +1387,7 @@ export function ForecastTab({
                   <button
                     type="button"
                     onClick={() => setScheduleViewMode('students')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       scheduleViewMode === 'students'
                         ? 'bg-[#0f3b7d] text-white shadow-xs'
                         : 'text-slate-700 hover:text-slate-900'
@@ -1082,9 +1399,10 @@ export function ForecastTab({
                 </div>
               </div>
 
-              {/* Filtro por Aluno / Matéria e Mês */}
+              {/* Barra de Filtros Completa & Dinâmica */}
               <div className="flex flex-wrap items-center gap-2">
-                <div className="relative w-full sm:w-60">
+                {/* 1. Busca por Aluno / Matéria */}
+                <div className="relative w-full sm:w-48">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
@@ -1095,10 +1413,12 @@ export function ForecastTab({
                   />
                 </div>
 
+                {/* 2. Filtro de Mês */}
                 <select
                   value={filterMonth}
                   onChange={(e) => setFilterMonth(e.target.value)}
-                  className="px-3 py-1.5 bg-white text-xs border border-slate-200 rounded-xl outline-none text-slate-700 font-semibold"
+                  className="px-2.5 py-1.5 bg-white text-xs border border-slate-200 rounded-xl outline-none text-slate-700 font-semibold cursor-pointer"
+                  title="Filtrar por Mês"
                 >
                   <option value="all">Todos os Meses</option>
                   {monthLabels.map((m) => (
@@ -1108,15 +1428,100 @@ export function ForecastTab({
                   ))}
                 </select>
 
+                {/* 3. Filtro de Prazo Semanal */}
+                <select
+                  value={filterWeek}
+                  onChange={(e) => setFilterWeek(e.target.value)}
+                  className={`px-2.5 py-1.5 text-xs border rounded-xl outline-none font-semibold cursor-pointer ${
+                    filterWeek !== 'all'
+                      ? 'bg-blue-50 text-[#0f3b7d] border-blue-300'
+                      : 'bg-white text-slate-700 border-slate-200'
+                  }`}
+                  title="Filtrar por Prazo Semanal"
+                >
+                  <option value="all">Semanas: Todas</option>
+                  <option value="0">🚨 Imediato (Hoje)</option>
+                  <option value="1">⚡ Em 1 Semana (~7 dias)</option>
+                  <option value="2">📅 Em 2 Semanas (~14 dias)</option>
+                  <option value="3">📆 Em 3 Semanas (~21 dias)</option>
+                  <option value="4">🗓️ Em 4 Semanas (~28 dias)</option>
+                  <option value="until_1">📈 Até 1 Semana (Imediato + Sem 1)</option>
+                  <option value="until_2">📈 Até 2 Semanas (Quinzena Completa)</option>
+                  <option value="until_3">📈 Até 3 Semanas (3 Semanas Acumuladas)</option>
+                </select>
+
+                {/* 4. Filtro de Etapa / Ciclo */}
+                <select
+                  value={filterStage}
+                  onChange={(e) => setFilterStage(e.target.value as any)}
+                  className={`px-2.5 py-1.5 text-xs border rounded-xl outline-none font-semibold cursor-pointer ${
+                    filterStage !== 'all'
+                      ? 'bg-blue-50 text-[#0f3b7d] border-blue-300'
+                      : 'bg-white text-slate-700 border-slate-200'
+                  }`}
+                  title="Filtrar por Etapa"
+                >
+                  <option value="all">Etapa: Todas</option>
+                  <option value="atual">Matéria Atual</option>
+                  <option value="proxima">Próxima Matéria</option>
+                </select>
+
+                {/* 5. Filtro de Ritmo Semanal */}
+                <select
+                  value={filterPace}
+                  onChange={(e) => setFilterPace(e.target.value as any)}
+                  className={`px-2.5 py-1.5 text-xs border rounded-xl outline-none font-semibold cursor-pointer ${
+                    filterPace !== 'all'
+                      ? 'bg-blue-50 text-[#0f3b7d] border-blue-300'
+                      : 'bg-white text-slate-700 border-slate-200'
+                  }`}
+                  title="Filtrar por Ritmo Semanal"
+                >
+                  <option value="all">Ritmo: Todos</option>
+                  <option value="1x">1x por semana</option>
+                  <option value="2x">2x por semana (Padrão)</option>
+                  <option value="4x">4x por semana (Rápido)</option>
+                  <option value="special">Especiais (&gt;2x)</option>
+                </select>
+
+                {/* 6. Filtro de Status */}
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as any)}
+                  className={`px-2.5 py-1.5 text-xs border rounded-xl outline-none font-semibold cursor-pointer ${
+                    filterStatus !== 'all'
+                      ? 'bg-blue-50 text-[#0f3b7d] border-blue-300'
+                      : 'bg-white text-slate-700 border-slate-200'
+                  }`}
+                  title="Filtrar por Status"
+                >
+                  <option value="all">Status: Todos</option>
+                  <option value="imediato">Imediato</option>
+                  <option value="projetado">Projetado</option>
+                </select>
+
+                {/* Botão Limpar Filtros */}
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={handleClearFilters}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                    title="Limpar todos os filtros ativos"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Limpar</span>
+                  </button>
+                )}
+
                 {/* Exportar Excel */}
                 <button
                   type="button"
                   onClick={handleExportExcel}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
                   title="Exportar planilha Excel com Resumo Mensal por Matéria e Cronograma por Aluno"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" />
-                  <span>Exportar Excel (.xlsx)</span>
+                  <span>Excel (.xlsx)</span>
                 </button>
               </div>
             </div>
@@ -1213,12 +1618,84 @@ export function ForecastTab({
                                       <table className="w-full text-left text-xs">
                                         <thead className="bg-slate-100 text-slate-600 font-bold border-b border-slate-200 text-[11px]">
                                           <tr>
-                                            <th className="py-2 px-3">Aluno</th>
-                                            <th className="py-2 px-3 text-center w-28">Aula / Total</th>
-                                            <th className="py-2 px-3 text-center w-28">Ritmo Semanal</th>
-                                            <th className="py-2 px-3 text-center w-36">Etapa</th>
-                                            <th className="py-2 px-3 text-center w-32">Semana Est.</th>
-                                            <th className="py-2 px-3 text-center w-28">Status</th>
+                                            <th
+                                              onClick={() => handleSort('student')}
+                                              className="py-2 px-3 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                                            >
+                                              <div className="flex items-center gap-1">
+                                                <span>Aluno</span>
+                                                {sortColumn === 'student' ? (
+                                                  sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                                                ) : (
+                                                  <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                                                )}
+                                              </div>
+                                            </th>
+                                            <th
+                                              onClick={() => handleSort('lesson')}
+                                              className="py-2 px-3 text-center w-28 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                                            >
+                                              <div className="flex items-center justify-center gap-1">
+                                                <span>Aula / Total</span>
+                                                {sortColumn === 'lesson' ? (
+                                                  sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                                                ) : (
+                                                  <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                                                )}
+                                              </div>
+                                            </th>
+                                            <th
+                                              onClick={() => handleSort('pace')}
+                                              className="py-2 px-3 text-center w-28 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                                            >
+                                              <div className="flex items-center justify-center gap-1">
+                                                <span>Ritmo Semanal</span>
+                                                {sortColumn === 'pace' ? (
+                                                  sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                                                ) : (
+                                                  <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                                                )}
+                                              </div>
+                                            </th>
+                                            <th
+                                              onClick={() => handleSort('stage')}
+                                              className="py-2 px-3 text-center w-36 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                                            >
+                                              <div className="flex items-center justify-center gap-1">
+                                                <span>Etapa</span>
+                                                {sortColumn === 'stage' ? (
+                                                  sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                                                ) : (
+                                                  <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                                                )}
+                                              </div>
+                                            </th>
+                                            <th
+                                              onClick={() => handleSort('week')}
+                                              className="py-2 px-3 text-center w-36 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                                            >
+                                              <div className="flex items-center justify-center gap-1">
+                                                <span>Semana Est.</span>
+                                                {sortColumn === 'week' ? (
+                                                  sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                                                ) : (
+                                                  <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                                                )}
+                                              </div>
+                                            </th>
+                                            <th
+                                              onClick={() => handleSort('status')}
+                                              className="py-2 px-3 text-center w-28 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                                            >
+                                              <div className="flex items-center justify-center gap-1">
+                                                <span>Status</span>
+                                                {sortColumn === 'status' ? (
+                                                  sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                                                ) : (
+                                                  <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                                                )}
+                                              </div>
+                                            </th>
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
@@ -1268,10 +1745,28 @@ export function ForecastTab({
                                                   </span>
                                                 )}
                                               </td>
-                                              <td className="py-2 px-3 text-center text-slate-600 font-mono text-[11px]">
-                                                {student.weeksUntilNextOrder === 0
-                                                  ? 'Imediato'
-                                                  : `Em ~${student.weeksUntilNextOrder} sem.`}
+                                              <td className="py-2 px-3 text-center">
+                                                {student.weeksUntilNextOrder === 0 ? (
+                                                  <span className="px-2 py-0.5 rounded font-extrabold text-[10px] bg-rose-100 text-rose-800 border border-rose-200 inline-flex items-center gap-1">
+                                                    🚨 Imediato
+                                                  </span>
+                                                ) : student.weeksUntilNextOrder === 1 ? (
+                                                  <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-blue-100 text-blue-800 border border-blue-200 inline-flex items-center gap-1">
+                                                    ⚡ 1 semana
+                                                  </span>
+                                                ) : student.weeksUntilNextOrder === 2 ? (
+                                                  <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-indigo-100 text-indigo-800 border border-indigo-200 inline-flex items-center gap-1">
+                                                    📅 2 semanas
+                                                  </span>
+                                                ) : student.weeksUntilNextOrder === 3 ? (
+                                                  <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-amber-100 text-amber-900 border border-amber-200 inline-flex items-center gap-1">
+                                                    📆 3 semanas
+                                                  </span>
+                                                ) : (
+                                                  <span className="px-2 py-0.5 rounded font-medium text-[10px] bg-slate-100 text-slate-700">
+                                                    ~{student.weeksUntilNextOrder} sem
+                                                  </span>
+                                                )}
                                               </td>
                                               <td className="py-2 px-3 text-center">
                                                 {student.status === 'imediato' ? (
@@ -1309,25 +1804,110 @@ export function ForecastTab({
                   <thead className="bg-slate-100/80 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider text-[11px]">
                     <tr>
                       <th className="py-2.5 px-3 w-10 text-center">#</th>
-                      <th className="py-2.5 px-3 min-w-[200px]">Aluno</th>
-                      <th className="py-2.5 px-3 min-w-[200px]">Matéria Solicitada</th>
-                      <th className="py-2.5 px-3 text-center w-32">Etapa</th>
-                      <th className="py-2.5 px-3 text-center w-28">Aula / Total</th>
-                      <th className="py-2.5 px-3 text-center w-28">Aulas / Sem.</th>
+                      <th
+                        onClick={() => handleSort('student')}
+                        className="py-2.5 px-3 min-w-[180px] cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Aluno</span>
+                          {sortColumn === 'student' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort('subject')}
+                        className="py-2.5 px-3 min-w-[180px] cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Matéria Solicitada</span>
+                          {sortColumn === 'subject' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort('stage')}
+                        className="py-2.5 px-3 text-center w-32 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span>Etapa</span>
+                          {sortColumn === 'stage' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort('lesson')}
+                        className="py-2.5 px-3 text-center w-28 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span>Aula / Total</span>
+                          {sortColumn === 'lesson' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort('pace')}
+                        className="py-2.5 px-3 text-center w-28 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span>Aulas / Sem.</span>
+                          {sortColumn === 'pace' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                          )}
+                        </div>
+                      </th>
                       <th className="py-2.5 px-3 text-center w-28">Matérias Rest.</th>
-                      <th className="py-2.5 px-3 min-w-[180px]">Mês Estimado</th>
-                      <th className="py-2.5 px-3 text-center w-28">Status</th>
+                      <th
+                        onClick={() => handleSort('week')}
+                        className="py-2.5 px-3 text-center w-36 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span>Semana Est. / Prazo</span>
+                          {sortColumn === 'week' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                          )}
+                        </div>
+                      </th>
+                      <th className="py-2.5 px-3 min-w-[170px]">Mês Estimado</th>
+                      <th
+                        onClick={() => handleSort('status')}
+                        className="py-2.5 px-3 text-center w-28 cursor-pointer hover:bg-slate-200/70 select-none transition-colors"
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <span>Status</span>
+                          {sortColumn === 'status' ? (
+                            sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-[#0f3b7d]" /> : <ArrowDown className="w-3 h-3 text-[#0f3b7d]" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-60" />
+                          )}
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredForecastItems.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-10 text-center text-slate-400">
+                        <td colSpan={10} className="py-10 text-center text-slate-400">
                           Nenhum aluno encontrado para os filtros selecionados.
                         </td>
                       </tr>
                     ) : (
-                      filteredForecastItems.map((item, idx) => (
+                      filteredForecastItems.map((item: ForecastStudentItem, idx: number) => (
                         <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">
                             {idx + 1}
@@ -1381,6 +1961,29 @@ export function ForecastTab({
                           </td>
                           <td className="py-2.5 px-3 text-center font-semibold text-slate-700">
                             {item.remainingSubjectsCount}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            {item.weeksUntilNextOrder === 0 ? (
+                              <span className="px-2 py-0.5 rounded font-extrabold text-[10px] bg-rose-100 text-rose-800 border border-rose-200 inline-flex items-center gap-1">
+                                🚨 Imediato
+                              </span>
+                            ) : item.weeksUntilNextOrder === 1 ? (
+                              <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-blue-100 text-blue-800 border border-blue-200 inline-flex items-center gap-1">
+                                ⚡ 1 semana
+                              </span>
+                            ) : item.weeksUntilNextOrder === 2 ? (
+                              <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-indigo-100 text-indigo-800 border border-indigo-200 inline-flex items-center gap-1">
+                                📅 2 semanas
+                              </span>
+                            ) : item.weeksUntilNextOrder === 3 ? (
+                              <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-amber-100 text-amber-900 border border-amber-200 inline-flex items-center gap-1">
+                                📆 3 semanas
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded font-medium text-[10px] bg-slate-100 text-slate-700">
+                                ~{item.weeksUntilNextOrder} sem
+                              </span>
+                            )}
                           </td>
                           <td className="py-2.5 px-3">
                             <span className="font-semibold text-slate-800">{item.estimatedMonthLabel}</span>

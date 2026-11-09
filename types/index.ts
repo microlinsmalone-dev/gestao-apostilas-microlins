@@ -179,6 +179,21 @@ export interface ForecastExcludedHistoricalItem {
 }
 
 /**
+ * Resumo consolidado de demanda semanal dentro do Mês 1 (Curto Prazo)
+ */
+export interface WeeklyDemandSummary {
+  week: 0 | 1 | 2 | 3 | 4; // 0 = Imediato, 1 = 1 sem, 2 = 2 sem, 3 = 3 sem, 4 = 4 sem
+  label: string; // "Imediato (Hoje)", "Em 1 semana (~7 dias)", etc.
+  shortLabel: string; // "Hoje", "1 sem", "2 sem", "3 sem", "4 sem"
+  timeframe: string; // "Aulas já no gatilho", "Próximos 7 dias", "8 a 14 dias (Quinzena)", etc.
+  totalWorkbooks: number;
+  uniqueStudentsCount: number;
+  cumulativeWorkbooks: number; // Total acumulado de apostilas até esta semana
+  cumulativeStudentsCount: number; // Total de alunos acumulados até esta semana
+  subjectsBreakdown: { subject: string; count: number }[];
+}
+
+/**
  * Resultado completo do motor de previsão de compras multi-meses
  */
 export interface ForecastResult {
@@ -189,6 +204,7 @@ export interface ForecastResult {
   issues: DataIssueItem[];
   historicalExcludedCount: number;
   historicalExcludedItems: ForecastExcludedHistoricalItem[];
+  weeklyBreakdownMonth1: WeeklyDemandSummary[];
 }
 
 /**
