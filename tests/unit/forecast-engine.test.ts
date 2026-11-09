@@ -400,4 +400,59 @@ describe('Motor de Previsão de Apostilas & Cronograma de Compras', () => {
     expect(proximaGames).toBeDefined();
     expect(proximaGames?.subjectName).toBe('Adobe Photoshop - Creative Cloud - Módulo II');
   });
+
+  it('deve suprimir demanda imediata quando o par Aluno + Matéria já consta no histórico de pedidos (excludeHistorical: true)', () => {
+    const catalog = getDefaultCourseDurations();
+    const mockStudent = [
+      {
+        studentName: 'MARIA SILVA SANTOS',
+        courseName: 'INFORMÁTICA ESSENCIAL',
+        rawSubjectName: '161870_Word 2021',
+        currentLesson: 6, // >= 4 (gatilho), geraria demanda imediata no Mês 1
+        physicalDelivery: 'Não',
+        remainingSubjectsCount: 3,
+      },
+    ];
+
+    const historicalMap = new Map<string, string>();
+    historicalMap.set('maria silva santos|||word 2021', 'Pedido 2026-10 - Outubro (Educador: Malone)');
+
+    // 1. Com excludeHistorical: true (padrão)
+    const resultExcluded = computeStudentsForecast({
+      rawOrProcessedItems: mockStudent,
+      coursesConfig: catalog,
+      frequencyConfigs: {},
+      triggerLesson: 4,
+      horizonMonths: 4,
+      historicalMap,
+      excludeHistorical: true,
+    });
+
+    // Demanda da matéria atual (Word 2021) foi suprimida
+    const wordDemand = resultExcluded.forecastItems.find(
+      (i) => i.studentName === 'MARIA SILVA SANTOS' && i.subjectName === 'Word 2021'
+    );
+    expect(wordDemand).toBeUndefined();
+    expect(resultExcluded.historicalExcludedCount).toBe(1);
+    expect(resultExcluded.historicalExcludedItems[0].orderTitle).toBe('Pedido 2026-10 - Outubro (Educador: Malone)');
+
+    // 2. Com excludeHistorical: false
+    const resultIncluded = computeStudentsForecast({
+      rawOrProcessedItems: mockStudent,
+      coursesConfig: catalog,
+      frequencyConfigs: {},
+      triggerLesson: 4,
+      horizonMonths: 4,
+      historicalMap,
+      excludeHistorical: false,
+    });
+
+    const wordDemandIncluded = resultIncluded.forecastItems.find(
+      (i) => i.studentName === 'MARIA SILVA SANTOS' && i.subjectName === 'Word 2021'
+    );
+    expect(wordDemandIncluded).toBeDefined();
+    expect(wordDemandIncluded?.isHistoricalDuplicate).toBe(true);
+    expect(wordDemandIncluded?.historicalMatchOrderTitle).toBe('Pedido 2026-10 - Outubro (Educador: Malone)');
+    expect(resultIncluded.historicalExcludedCount).toBe(0);
+  });
 });

@@ -163,6 +163,32 @@ export interface ForecastStudentItem {
   nextSubjectName?: string;
   hasPhysicalDelivery?: boolean;
   stage?: 'atual' | 'proxima';
+  isHistoricalDuplicate?: boolean;
+  historicalMatchOrderTitle?: string;
+}
+
+/**
+ * Item suprimido da previsão por já constar no histórico de pedidos
+ */
+export interface ForecastExcludedHistoricalItem {
+  studentName: string;
+  subjectName: string;
+  courseName?: string;
+  stage: 'atual' | 'proxima';
+  orderTitle?: string;
+}
+
+/**
+ * Resultado completo do motor de previsão de compras multi-meses
+ */
+export interface ForecastResult {
+  forecastItems: ForecastStudentItem[];
+  monthlySummaries: ForecastMonthlySummary[];
+  uniqueStudentsCount: number;
+  totalWorkbooksCount: number;
+  issues: DataIssueItem[];
+  historicalExcludedCount: number;
+  historicalExcludedItems: ForecastExcludedHistoricalItem[];
 }
 
 /**

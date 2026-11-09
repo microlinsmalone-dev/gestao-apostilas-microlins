@@ -10,8 +10,11 @@ import {
   ForecastMonthlySummary,
   DataIssueItem,
   ProcessedStudentItem,
+  ForecastResult,
+  ForecastExcludedHistoricalItem,
 } from '../../types';
 import { cleanSubject, normalizeText } from './sanitizer';
+import { createDuplicateFingerprint } from './duplicates';
 import {
   CURSOS_OFICIAIS_SISTEMA_FICHAS,
   getCursosOficiaisSistemaFichas,
@@ -333,13 +336,9 @@ export function computeStudentsForecast(params: {
   horizonMonths?: number; // 1 a 4 meses
   referenceDate?: Date;
   ignoredSubjects?: string[]; // matérias ignoradas das configurações
-}): {
-  forecastItems: ForecastStudentItem[];
-  monthlySummaries: ForecastMonthlySummary[];
-  uniqueStudentsCount: number;
-  totalWorkbooksCount: number;
-  issues: DataIssueItem[];
-} {
+  historicalMap?: Map<string, string> | Set<string>; // mapa de pedidos já salvos no histórico
+  excludeHistorical?: boolean; // Se true (padrão), elimina itens já pedidos no histórico
+}): ForecastResult {
   const {
     rawOrProcessedItems,
     coursesConfig = CURSOS_OFICIAIS_SISTEMA_FICHAS,
@@ -348,11 +347,15 @@ export function computeStudentsForecast(params: {
     horizonMonths = 4,
     referenceDate = new Date(),
     ignoredSubjects = [],
+    historicalMap,
+    excludeHistorical = true,
   } = params;
 
   const monthLabels = getUpcomingMonthLabels(referenceDate, horizonMonths);
   const forecastItems: ForecastStudentItem[] = [];
   const issues: DataIssueItem[] = [];
+  const historicalExcludedItems: ForecastExcludedHistoricalItem[] = [];
+  let historicalExcludedCount = 0;
 
   const monthlyCounts: Record<
     number,
@@ -587,6 +590,27 @@ export function computeStudentsForecast(params: {
     ) => {
       if (targetMonthIndex < 1 || targetMonthIndex > horizonMonths) return;
 
+      // Verificação contra Histórico de Pedidos Gravados no Sistema
+      const fp = createDuplicateFingerprint(studentName, subjName);
+      const isHistoricalDuplicate = Boolean(
+        historicalMap &&
+          (historicalMap instanceof Map ? historicalMap.has(fp) : (historicalMap as Set<string>).has(fp))
+      );
+      const historicalMatchTitle =
+        isHistoricalDuplicate && historicalMap instanceof Map ? historicalMap.get(fp) : undefined;
+
+      if (isHistoricalDuplicate && excludeHistorical) {
+        historicalExcludedCount++;
+        historicalExcludedItems.push({
+          studentName,
+          subjectName: subjName,
+          courseName,
+          stage,
+          orderTitle: historicalMatchTitle,
+        });
+        return; // Não agenda a demanda se o filtro de exclusão estiver ativo
+      }
+
       const mSlot = monthlyCounts[targetMonthIndex];
       if (!mSlot) return;
 
@@ -616,6 +640,8 @@ export function computeStudentsForecast(params: {
         nextSubjectName: unstartedRows[0]?.rawSubject || '',
         hasPhysicalDelivery: hasDelivery,
         stage,
+        isHistoricalDuplicate,
+        historicalMatchOrderTitle: historicalMatchTitle,
       });
     };
 
@@ -770,5 +796,7 @@ export function computeStudentsForecast(params: {
     uniqueStudentsCount: uniqueStudentsGlobal.size,
     totalWorkbooksCount: grandTotalWorkbooks,
     issues,
+    historicalExcludedCount,
+    historicalExcludedItems,
   };
 }
