@@ -47,6 +47,11 @@ import { exportForecastToExcel } from '../../lib/export/excel-forecast-export';
 import { useDialog } from '../ui/dialog';
 import { supabase } from '../../lib/supabase/client';
 import { parseSpreadsheetBuffer } from '../../lib/importers';
+import {
+  saveForecastConfigToCloudAndLocal,
+  loadForecastConfigFromCloudAndLocal,
+} from '../../lib/domain/forecast-storage';
+import { loadAutocompleteBase } from '../../lib/domain/autocomplete-service';
 
 interface ForecastTabProps {
   currentOrderItems: ProcessedStudentItem[];
@@ -212,31 +217,18 @@ export function ForecastTab({
           }
         }
 
-        // 2. Carrega configurações da previsão
-        const { data } = await supabase
-          .from('audit_logs')
-          .select('metadata')
-          .eq('unit_id', currentUnit)
-          .eq('entity_type', 'forecast_settings')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (data && data.metadata) {
-          const raw = data.metadata as any;
-          if (Array.isArray(raw.forecast_courses) && raw.forecast_courses.length >= 80) {
-            setCoursesConfig(raw.forecast_courses);
+        // 2. Carrega configurações da previsão (Cursos e Frequências) da nuvem com fallback para localStorage
+        const savedCloud = await loadForecastConfigFromCloudAndLocal(currentUnit);
+        if (savedCloud) {
+          if (Array.isArray(savedCloud.forecast_courses) && savedCloud.forecast_courses.length >= 80) {
+            setCoursesConfig(savedCloud.forecast_courses);
           }
-          if (raw.forecast_frequencies && typeof raw.forecast_frequencies === 'object') {
-            const normalizedFreqs: Record<string, number> = {};
-            for (const [k, v] of Object.entries(raw.forecast_frequencies)) {
-              normalizedFreqs[normalizeText(k)] = Number(v);
-            }
-            setFrequencyConfigs(normalizedFreqs);
+          if (savedCloud.forecast_frequencies && typeof savedCloud.forecast_frequencies === 'object') {
+            setFrequencyConfigs(savedCloud.forecast_frequencies);
           }
         }
       } catch (err) {
-        console.warn('Configurações salvas da previsão não puderam ser recuperadas do banco:', err);
+        console.warn('Configurações salvas da previsão não puderam ser recuperadas:', err);
       }
     }
     fetchSavedConfigs();
@@ -466,8 +458,46 @@ export function ForecastTab({
         map.set(key, item);
       }
     });
+
+    // Se a previsão estiver sem itens (ex: usuário abriu a tela sem importar planilha nova),
+    // carrega a lista de alunos da última base de referência importada para nunca sumir com as configurações
+    if (map.size === 0 && typeof window !== 'undefined') {
+      const base = loadAutocompleteBase();
+      if (base && Array.isArray(base.students) && base.students.length > 0) {
+        base.students.forEach((s, idx) => {
+          const studentKey = normalizeText(s.name);
+          const courseKey = s.course ? normalizeText(s.course) : '';
+          const key = courseKey ? `${studentKey}:::${courseKey}` : studentKey;
+          const configuredFreq =
+            (courseKey && frequencyConfigs[`${studentKey}:::${courseKey}`]) ||
+            frequencyConfigs[studentKey] ||
+            2;
+
+          map.set(key, {
+            id: `ref_freq_${idx}_${studentKey}`,
+            studentName: s.name,
+            subjectName: s.lastSubject || 'Matéria do Curso',
+            courseName: s.course,
+            educatorName: s.educator,
+            currentLesson: 1,
+            totalLessons: 16,
+            remainingLessonsInSubject: 16,
+            remainingSubjectsCount: 1,
+            lessonsPerWeek: configuredFreq,
+            isSpecial: configuredFreq > 2,
+            triggerLesson: 4,
+            weeksUntilNextOrder: 0,
+            estimatedMonthLabel: 'Referência',
+            estimatedMonthIndex: 1,
+            status: 'projetado',
+            stage: 'atual',
+          });
+        });
+      }
+    }
+
     return Array.from(map.values());
-  }, [forecastResult.forecastItems]);
+  }, [forecastResult.forecastItems, frequencyConfigs]);
 
   // Contadores dinâmicos para as abas de frequência
   const frequencyCounts = useMemo(() => {
@@ -685,39 +715,27 @@ export function ForecastTab({
     showToast(`Curso "${newCourse.name}" adicionado com sucesso!`, 'success');
   };
 
-  // Salvar no Banco Supabase explicitamente
+  // Salvar no Banco Supabase e LocalStorage explicitamente
   const handleSaveConfigsToSupabase = async () => {
     try {
       setIsSavingConfig(true);
       const currentUnit = unitId || process.env.NEXT_PUBLIC_DEFAULT_UNIT_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('microlins_forecast_courses', JSON.stringify(coursesConfig));
-        localStorage.setItem('microlins_forecast_frequencies', JSON.stringify(frequencyConfigs));
-      }
+      const res = await saveForecastConfigToCloudAndLocal(
+        currentUnit,
+        coursesConfig,
+        frequencyConfigs,
+        triggerLesson,
+        horizonMonths
+      );
 
-      const payload = {
-        forecast_courses: coursesConfig,
-        forecast_frequencies: frequencyConfigs,
-        forecast_trigger_lesson: triggerLesson,
-        forecast_horizon_months: horizonMonths,
-        saved_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase.from('audit_logs').insert({
-        unit_id: currentUnit,
-        entity_type: 'forecast_settings',
-        entity_id: currentUnit,
-        action: 'UPDATE_FORECAST_CONFIG',
-        metadata: payload as any,
-      });
-
-      if (error) {
-        console.warn('Erro ao sincronizar com audit_logs no Supabase:', error.message);
+      if (!res.success) {
+        showAlert(`Falha ao sincronizar com o Supabase: ${res.error}`, 'error', 'Salvar Configurações');
+        return;
       }
 
       setHasUnsavedChanges(false);
-      showToast('Configurações salvas no Supabase com sucesso!', 'success');
+      showToast('Configurações salvas no Supabase e no computador com sucesso!', 'success');
     } catch (err: any) {
       showAlert(`Erro ao salvar no banco: ${err.message}`, 'error', 'Salvar Configurações');
     } finally {
@@ -756,6 +774,14 @@ export function ForecastTab({
   }, [forecastResult.issues, issueFilterStudent, issueFilterSubject, issueFilterType]);
 
   // Cursos filtrados na sub-aba de Cursos
+  const officialDefaultsMap = useMemo(() => {
+    const map = new Map<string, number>();
+    getDefaultCourseDurations().forEach((c) => {
+      map.set(c.id, c.totalLessons);
+    });
+    return map;
+  }, []);
+
   const filteredCourses = useMemo(() => {
     if (!courseSearch) return coursesConfig;
     const q = courseSearch.toLowerCase();
@@ -836,7 +862,9 @@ export function ForecastTab({
           </div>
           <div className="text-[11px] text-slate-500 flex items-center gap-1">
             <Info className="w-3.5 h-3.5 text-[#0f3b7d] shrink-0" />
-            <span>Utiliza a planilha completa do Passo 1. O botão &quot;Upload Planilha Avulsa&quot; serve para testar outras planilhas sem alterar o pedido.</span>
+            <span>
+              <strong>Dica:</strong> &quot;Toda a Escola&quot; projeta compras para todos os alunos ativos da escola. &quot;Apenas Pedido Físico&quot; restringe o cálculo aos alunos da remessa física atual.
+            </span>
           </div>
         </div>
 
@@ -846,13 +874,14 @@ export function ForecastTab({
             <button
               type="button"
               onClick={() => handleSelectSource('full_sheet')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 sourceMode === 'full_sheet'
                   ? 'bg-[#0f3b7d] text-white shadow-xs'
                   : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
               }`}
+              title="Calcula a previsão de compras futura para todos os alunos da escola (inclusive quem está na aula 1, 2, 10, etc.)"
             >
-              <span>Toda a Escola ({rawRows.length} registros brutos)</span>
+              <span>Toda a Escola ({rawRows.length} registros)</span>
               {sourceMode === 'full_sheet' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
             </button>
           )}
@@ -862,11 +891,12 @@ export function ForecastTab({
             <button
               type="button"
               onClick={() => handleSelectSource('current_order')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 sourceMode === 'current_order'
                   ? 'bg-[#0f3b7d] text-white shadow-xs'
                   : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
               }`}
+              title="Calcula a demanda futura exclusivamente dos alunos que estão na faixa de corte físico imediato (aula 4 a 6)"
             >
               <span>Apenas Pedido Físico ({currentOrderItems.length} alunos aula {triggerLesson} a 6)</span>
               {sourceMode === 'current_order' && <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>}
@@ -1017,213 +1047,44 @@ export function ForecastTab({
       {/* ========================================================================= */}
       {activeSubTab === 'cronograma' && (
         <div className="space-y-6">
-          {/* BANNER DE PROTEÇÃO CONTRA DUPLICIDADES DO HISTÓRICO */}
-          {forecastResult.historicalExcludedCount > 0 && excludeHistorical && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-gradient-to-r from-emerald-50 via-teal-50/50 to-white border border-emerald-200 rounded-2xl shadow-xs text-xs">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl shrink-0 shadow-2xs">
-                  <ShieldCheck className="w-4 h-4" />
+          {/* ========================================================================= */}
+          {/* 1. DESTAQUE PRINCIPAL: PREVISÃO SEMANAL DE CURTO PRAZO (DENTRO DO MÊS 1) */}
+          {/* ========================================================================= */}
+          <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-white p-4 sm:p-5 rounded-2xl border border-blue-200/90 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-100/80 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-[#0f3b7d] text-white rounded-xl shadow-2xs shrink-0">
+                  <CalendarClock className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-emerald-950 text-sm">
-                      {forecastResult.historicalExcludedCount}{' '}
-                      {forecastResult.historicalExcludedCount === 1 ? 'apostila suprimida' : 'apostilas suprimidas'} da previsão
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                      Já Pedidas no Histórico
+                    <h3 className="font-extrabold text-[#0f3b7d] text-sm sm:text-base">
+                      Previsão Semanal de Curto Prazo
+                    </h3>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-100 text-[#0f3b7d] border border-blue-200">
+                      Mês 1 Atual • Clique no Card para Filtrar
                     </span>
                   </div>
-                  <p className="text-slate-600 text-[11px] mt-0.5">
-                    Estas apostilas já foram registradas em pedidos anteriores no sistema e foram desconsideradas para evitar compras duplicadas.
+                  <p className="text-xs text-slate-500">
+                    Veja exatamente quantos alunos e materiais serão necessários em 1, 2 e 3 semanas.
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setShowExcludedModal(true)}
-                  className="px-3 py-1.5 bg-white hover:bg-emerald-100/50 text-emerald-800 border border-emerald-300 font-semibold rounded-xl text-xs shadow-2xs transition-colors cursor-pointer"
-                >
-                  Ver Lista ({forecastResult.historicalExcludedCount})
-                </button>
-              </div>
-            </div>
-          )}
 
-          {!excludeHistorical && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 shadow-2xs">
-              <div className="flex items-center gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>
-                  <strong>Aviso de Histórico Inativo:</strong> A eliminação de apostilas já pedidas está <strong>desativada</strong>. Itens já pedidos anteriormente estão sendo incluídos na previsão com o selo <span className="px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 font-bold text-[10px]">Histórico</span>.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setExcludeHistorical(true)}
-                className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs shrink-0 cursor-pointer transition-colors"
-              >
-                Reativar Eliminação
-              </button>
-            </div>
-          )}
-          {/* RESUMO EXECUTIVO CONSOLIDADO (2 CARDS ESTRATÉGICOS) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Resumo 1: Demanda Total Acumulada no Horizonte */}
-            <div className="bg-white p-5 rounded-2xl border border-blue-200/80 shadow-xs flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-white via-blue-50/20 to-blue-50/50">
-              <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-                <span className="font-bold text-slate-800 flex items-center gap-2 text-sm">
-                  <div className="p-1.5 rounded-lg bg-blue-100 text-[#0f3b7d]">
-                    <Users className="w-4 h-4" />
-                  </div>
-                  Demanda Total Consolidada ({horizonMonths} Meses)
-                </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                  Total Único
-                </span>
-              </div>
-              <div className="flex items-baseline gap-3 my-2">
-                <span className="text-3xl font-black text-[#0f3b7d] tracking-tight">{forecastResult.uniqueStudentsCount}</span>
-                <span className="text-sm text-slate-600 font-semibold">alunos únicos com demanda</span>
-              </div>
-              <div className="text-xs text-slate-600 border-t border-blue-100/80 pt-2.5 flex items-center justify-between">
-                <span>Total de apostilas projetadas no período:</span>
-                <strong className="text-[#0f3b7d] font-bold text-sm">{forecastResult.totalWorkbooksCount} apostilas</strong>
-              </div>
-            </div>
-
-            {/* Resumo 2: Recomendação Estratégica - Pedido Alvo (Mês 3 / Daqui a 2 Meses) */}
-            <div className="bg-white p-5 rounded-2xl border-2 border-amber-400 shadow-xs flex flex-col justify-between relative overflow-hidden bg-gradient-to-br from-amber-50/80 via-white to-amber-50/30">
-              <div className="flex items-center justify-between text-xs text-amber-900 mb-2">
-                <span className="font-bold flex items-center gap-2 text-sm text-amber-950">
-                  <div className="p-1.5 rounded-lg bg-amber-200 text-amber-900">
-                    <Target className="w-4 h-4 text-amber-700" />
-                  </div>
-                  Pedido Alvo Recomendado (Daqui a 2 Meses)
-                </span>
-                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-300 text-amber-950 shadow-2xs border border-amber-400">
-                  Mês 3 • Alvo 🎯
-                </span>
-              </div>
-              <div className="flex items-baseline gap-3 my-2">
-                <span className="text-3xl font-black text-amber-800 tracking-tight">{month3Summary?.totalWorkbooks || 0}</span>
-                <span className="text-sm text-amber-900 font-semibold">apostilas a pedir</span>
-              </div>
-              <div className="text-xs text-amber-900 border-t border-amber-200/80 pt-2.5 flex items-center justify-between">
-                <span className="font-medium">
-                  Competência: <strong>{month3Summary ? month3Summary.monthLabel.split('(')[0].trim() : 'Dezembro / 2026'}</strong>
-                </span>
-                <strong className="text-amber-950 font-bold shrink-0">{month3Summary?.uniqueStudentsCount || 0} alunos</strong>
-              </div>
-            </div>
-          </div>
-
-          {/* CRONOGRAMA MENSAL DE DEMANDA (LINHA DO TEMPO) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {forecastResult.monthlySummaries.map((summary) => {
-              const isTargetMonth = summary.monthIndex === 3;
-              const cleanMonth = summary.monthLabel.includes('(')
-                ? summary.monthLabel.split('(')[0].trim()
-                : summary.monthLabel;
-
-              const relativeBadge =
-                summary.monthIndex === 1
-                  ? 'Imediato'
-                  : summary.monthIndex === 2
-                  ? '+4 sem'
-                  : summary.monthIndex === 3
-                  ? 'Alvo Recomendado'
-                  : '+12 sem';
-
-              return (
-                <div
-                  key={summary.monthIndex}
-                  className={`p-4 rounded-2xl border flex flex-col justify-between transition-all ${
-                    isTargetMonth
-                      ? 'bg-gradient-to-b from-amber-50/70 to-white border-2 border-amber-400 shadow-xs ring-2 ring-amber-300/30'
-                      : 'bg-white border-slate-200 hover:border-[#0f3b7d]/50 shadow-2xs'
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-xs mb-2 gap-2">
-                    <span className="font-bold text-slate-800 text-xs tracking-tight shrink-0" title={cleanMonth}>
-                      {cleanMonth}
-                    </span>
-                    <span
-                      className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full shrink-0 ${
-                        isTargetMonth
-                          ? 'bg-amber-300 text-amber-950 border border-amber-400'
-                          : 'bg-slate-100 text-slate-600 border border-slate-200'
-                      }`}
-                    >
-                      Mês {summary.monthIndex} • {relativeBadge}
-                    </span>
-                  </div>
-
-                  <div className="my-2">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className={`text-2xl font-black ${isTargetMonth ? 'text-amber-900' : 'text-[#0f3b7d]'}`}>
-                        {summary.totalWorkbooks}
-                      </span>
-                      <span className="text-xs text-slate-500 font-semibold">apostilas</span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-                      {summary.uniqueStudentsCount || 0} alunos com demanda
-                    </p>
-                  </div>
-
-                  <div
-                    className="text-[11px] text-slate-500 border-t border-slate-100 pt-2.5 truncate"
-                    title={
-                      summary.subjectsBreakdown.length > 0
-                        ? `${summary.subjectsBreakdown[0].subject} (${summary.subjectsBreakdown[0].count} apostilas)`
-                        : 'Sem demandas'
-                    }
-                  >
-                    {summary.subjectsBreakdown.length > 0 ? (
-                      <span>
-                        Maior volume:{' '}
-                        <strong className="text-slate-700">
-                          {summary.subjectsBreakdown[0].subject} ({summary.subjectsBreakdown[0].count})
-                        </strong>
-                      </span>
-                    ) : (
-                      <span className="text-slate-400 italic">Sem demandas</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* PAINEL SEMANAL DE CURTO PRAZO (DENTRO DO MÊS ATUAL) */}
-          <div className="bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-white p-4 rounded-2xl border border-blue-200 shadow-xs space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-[#0f3b7d] text-white rounded-xl shadow-2xs shrink-0">
-                  <CalendarClock className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-[#0f3b7d] text-xs sm:text-sm">
-                    Previsão Semanal de Curto Prazo (Dentro do Mês Atual)
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Clique em um prazo abaixo para filtrar instantaneamente quem precisa de material nesta semana ou quinzena.
-                  </p>
-                </div>
-              </div>
               {filterWeek !== 'all' && (
                 <button
                   type="button"
                   onClick={() => setFilterWeek('all')}
-                  className="px-2.5 py-1 text-[11px] font-bold text-[#0f3b7d] bg-white border border-blue-200 hover:bg-blue-50 rounded-lg shadow-2xs self-start sm:self-auto cursor-pointer transition-colors"
+                  className="px-3 py-1.5 text-xs font-bold text-[#0f3b7d] bg-white border border-blue-200 hover:bg-blue-50 rounded-xl shadow-2xs self-start sm:self-auto cursor-pointer transition-colors flex items-center gap-1.5"
                 >
-                  ✕ Ver Todas as Semanas
+                  <X className="w-3.5 h-3.5" />
+                  <span>Ver Todas as Semanas</span>
                 </button>
               )}
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {/* Grid dos 4 Cards de Semanas */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {/* Card 0: Imediato */}
               {(() => {
                 const w0 = forecastResult.weeklyBreakdownMonth1?.[0];
@@ -1232,27 +1093,27 @@ export function ForecastTab({
                   <button
                     type="button"
                     onClick={() => setFilterWeek(isSelected ? 'all' : '0')}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
                       isSelected
-                        ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-300 shadow-xs'
-                        : 'bg-white border-rose-200/80 hover:border-rose-300 hover:bg-rose-50/40 shadow-2xs'
+                        ? 'bg-rose-50 border-rose-500 ring-2 ring-rose-400 shadow-sm'
+                        : 'bg-white border-rose-200/90 hover:border-rose-400 hover:bg-rose-50/50 shadow-2xs'
                     }`}
                   >
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-bold text-rose-900 flex items-center gap-1">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="font-bold text-rose-950 flex items-center gap-1 text-xs">
                         <span>🚨</span> Imediato (Hoje)
                       </span>
-                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-rose-100 text-rose-800">
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-rose-100 text-rose-800 border border-rose-200">
                         Aula ≥ {triggerLesson}
                       </span>
                     </div>
-                    <div className="flex items-baseline gap-1 my-1">
-                      <span className="text-xl font-black text-rose-800 tracking-tight">
+                    <div className="flex items-baseline gap-1.5 my-1">
+                      <span className="text-2xl font-black text-rose-800 tracking-tight">
                         {w0?.totalWorkbooks || 0}
                       </span>
-                      <span className="text-[11px] text-slate-500 font-semibold">apostilas</span>
+                      <span className="text-xs text-slate-600 font-semibold">apostilas</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 truncate">
+                    <p className="text-[11px] text-slate-500 truncate">
                       {w0?.uniqueStudentsCount || 0} alunos já no gatilho
                     </p>
                   </button>
@@ -1267,27 +1128,27 @@ export function ForecastTab({
                   <button
                     type="button"
                     onClick={() => setFilterWeek(isSelected ? 'all' : '1')}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
                       isSelected
-                        ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-300 shadow-xs'
-                        : 'bg-white border-blue-200/80 hover:border-blue-300 hover:bg-blue-50/40 shadow-2xs'
+                        ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-400 shadow-sm'
+                        : 'bg-white border-blue-200/90 hover:border-blue-400 hover:bg-blue-50/50 shadow-2xs'
                     }`}
                   >
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-bold text-blue-900 flex items-center gap-1">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="font-bold text-blue-950 flex items-center gap-1 text-xs">
                         <span>⚡</span> Em 1 Semana
                       </span>
-                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800">
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 border border-blue-200">
                         ~7 dias
                       </span>
                     </div>
-                    <div className="flex items-baseline gap-1 my-1">
-                      <span className="text-xl font-black text-[#0f3b7d] tracking-tight">
+                    <div className="flex items-baseline gap-1.5 my-1">
+                      <span className="text-2xl font-black text-[#0f3b7d] tracking-tight">
                         {w1?.totalWorkbooks || 0}
                       </span>
-                      <span className="text-[11px] text-slate-500 font-semibold">apostilas</span>
+                      <span className="text-xs text-slate-600 font-semibold">apostilas</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 truncate">
+                    <p className="text-[11px] text-slate-500 truncate">
                       {w1?.uniqueStudentsCount || 0} alunos • Acumulado: {w1?.cumulativeWorkbooks || 0}
                     </p>
                   </button>
@@ -1302,27 +1163,27 @@ export function ForecastTab({
                   <button
                     type="button"
                     onClick={() => setFilterWeek(isSelected ? 'all' : '2')}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
                       isSelected
-                        ? 'bg-indigo-50 border-indigo-400 ring-2 ring-indigo-300 shadow-xs'
-                        : 'bg-white border-indigo-200/80 hover:border-indigo-300 hover:bg-indigo-50/40 shadow-2xs'
+                        ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-400 shadow-sm'
+                        : 'bg-white border-indigo-200/90 hover:border-indigo-400 hover:bg-indigo-50/50 shadow-2xs'
                     }`}
                   >
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-bold text-indigo-900 flex items-center gap-1">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="font-bold text-indigo-950 flex items-center gap-1 text-xs">
                         <span>📅</span> Em 2 Semanas
                       </span>
-                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800">
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">
                         Quinzena
                       </span>
                     </div>
-                    <div className="flex items-baseline gap-1 my-1">
-                      <span className="text-xl font-black text-indigo-800 tracking-tight">
+                    <div className="flex items-baseline gap-1.5 my-1">
+                      <span className="text-2xl font-black text-indigo-800 tracking-tight">
                         {w2?.totalWorkbooks || 0}
                       </span>
-                      <span className="text-[11px] text-slate-500 font-semibold">apostilas</span>
+                      <span className="text-xs text-slate-600 font-semibold">apostilas</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 truncate">
+                    <p className="text-[11px] text-slate-500 truncate">
                       {w2?.uniqueStudentsCount || 0} alunos • Acumulado: {w2?.cumulativeWorkbooks || 0}
                     </p>
                   </button>
@@ -1337,32 +1198,117 @@ export function ForecastTab({
                   <button
                     type="button"
                     onClick={() => setFilterWeek(isSelected ? 'all' : '3')}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden ${
                       isSelected
-                        ? 'bg-amber-50 border-amber-400 ring-2 ring-amber-300 shadow-xs'
-                        : 'bg-white border-amber-200/80 hover:border-amber-300 hover:bg-amber-50/40 shadow-2xs'
+                        ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-400 shadow-sm'
+                        : 'bg-white border-amber-200/90 hover:border-amber-400 hover:bg-amber-50/50 shadow-2xs'
                     }`}
                   >
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-bold text-amber-950 flex items-center gap-1">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="font-bold text-amber-950 flex items-center gap-1 text-xs">
                         <span>📆</span> Em 3 Semanas
                       </span>
-                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200">
                         ~21 dias
                       </span>
                     </div>
-                    <div className="flex items-baseline gap-1 my-1">
-                      <span className="text-xl font-black text-amber-900 tracking-tight">
+                    <div className="flex items-baseline gap-1.5 my-1">
+                      <span className="text-2xl font-black text-amber-900 tracking-tight">
                         {w3?.totalWorkbooks || 0}
                       </span>
-                      <span className="text-[11px] text-slate-500 font-semibold">apostilas</span>
+                      <span className="text-xs text-slate-600 font-semibold">apostilas</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 truncate">
+                    <p className="text-[11px] text-slate-500 truncate">
                       {w3?.uniqueStudentsCount || 0} alunos • Acumulado: {w3?.cumulativeWorkbooks || 0}
                     </p>
                   </button>
                 );
               })()}
+            </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* 2. PROJEÇÃO MENSAL ESTRATÉGICA (LINHA DO TEMPO COMPACTA DE 4 MESES) */}
+          {/* ========================================================================= */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-[#0f3b7d]" />
+                <h4 className="font-bold text-slate-800 text-xs sm:text-sm">
+                  Projeção Mensal de Compras (Horizonte de {horizonMonths} Meses)
+                </h4>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-semibold border border-slate-200">
+                  Consolidado: <strong>{forecastResult.totalWorkbooksCount} apostilas</strong> ({forecastResult.uniqueStudentsCount} alunos)
+                </span>
+                {filterMonth !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterMonth('all')}
+                    className="text-[11px] font-bold text-[#0f3b7d] hover:underline cursor-pointer"
+                  >
+                    Ver Todos os Meses
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {forecastResult.monthlySummaries.map((summary) => {
+                const isTargetMonth = summary.monthIndex === 3;
+                const isSelectedMonth = filterMonth === String(summary.monthIndex);
+                const cleanMonth = summary.monthLabel.includes('(')
+                  ? summary.monthLabel.split('(')[0].trim()
+                  : summary.monthLabel;
+
+                return (
+                  <button
+                    type="button"
+                    key={summary.monthIndex}
+                    onClick={() => setFilterMonth(isSelectedMonth ? 'all' : String(summary.monthIndex))}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      isSelectedMonth
+                        ? 'bg-blue-50 border-[#0f3b7d] ring-2 ring-[#0f3b7d]/30 shadow-xs'
+                        : isTargetMonth
+                        ? 'bg-gradient-to-b from-amber-50/70 to-white border-amber-300 hover:border-amber-400 shadow-2xs'
+                        : 'bg-slate-50/50 hover:bg-white border-slate-200 hover:border-slate-300 shadow-2xs'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-bold text-slate-800 text-xs truncate" title={cleanMonth}>
+                        {cleanMonth}
+                      </span>
+                      <span
+                        className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-full ${
+                          isTargetMonth
+                            ? 'bg-amber-300 text-amber-950 border border-amber-400'
+                            : 'bg-white text-slate-600 border border-slate-200'
+                        }`}
+                      >
+                        {isTargetMonth ? '🎯 Alvo Mês 3' : `Mês ${summary.monthIndex}`}
+                      </span>
+                    </div>
+
+                    <div className="flex items-baseline gap-1 my-0.5">
+                      <span className={`text-xl font-black ${isTargetMonth ? 'text-amber-900' : 'text-[#0f3b7d]'}`}>
+                        {summary.totalWorkbooks}
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-medium">apostilas ({summary.uniqueStudentsCount} alunos)</span>
+                    </div>
+
+                    <div className="text-[10px] text-slate-500 truncate pt-1 border-t border-slate-100">
+                      {summary.subjectsBreakdown.length > 0 ? (
+                        <span>
+                          Maior: <strong className="text-slate-700">{summary.subjectsBreakdown[0].subject} ({summary.subjectsBreakdown[0].count})</strong>
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 italic">Sem demandas</span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -2038,6 +1984,16 @@ export function ForecastTab({
             </div>
           </div>
 
+          {/* Banner de Base de Referência Ativa quando não há planilha aberta na sessão */}
+          {forecastResult.forecastItems.length === 0 && frequencyStudentsList.length > 0 && (
+            <div className="flex items-center gap-2.5 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 shadow-2xs">
+              <Info className="w-4 h-4 text-[#0f3b7d] shrink-0" />
+              <span>
+                <strong>Base de Alunos de Referência:</strong> Exibindo os {frequencyStudentsList.length} alunos do último pedido importado. Suas frequências estão salvas e serão aplicadas nas próximas previsões.
+              </span>
+            </div>
+          )}
+
           {/* Abas de Filtragem de Frequência */}
           <div className="flex flex-wrap items-center gap-2 border-b border-slate-200/80 pb-3">
             {[
@@ -2233,11 +2189,15 @@ export function ForecastTab({
                       <span className={`font-semibold ${course.active ? 'text-slate-800' : 'text-slate-400 line-through'}`}>
                         {course.name}
                       </span>
-                      {course.isCustom && (
+                      {course.isCustom ? (
                         <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200">
                           Personalizado
                         </span>
-                      )}
+                      ) : officialDefaultsMap.has(course.id) && officialDefaultsMap.get(course.id) !== course.totalLessons ? (
+                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold border border-amber-200">
+                          Ajustado (Padrão: {officialDefaultsMap.get(course.id)})
+                        </span>
+                      ) : null}
                     </td>
                     <td className="py-2.5 px-3 text-center">
                       <input

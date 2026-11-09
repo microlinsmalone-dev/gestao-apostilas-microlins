@@ -78,12 +78,15 @@ function HistoricoContent() {
 
       if (error) throw error;
 
+      // Filtra pedidos do sistema (como configurações de previsão)
+      const visibleOrders = (data || []).filter((o) => o.order_number !== 'CONFIG_FORECAST');
+
       // Para cada pedido, busca o educador predominante
       const ordersWithEducator: OrderWithEducator[] = [];
 
-      if (data && data.length > 0) {
+      if (visibleOrders.length > 0) {
         // Busca todos os itens de todos os pedidos de uma vez para performance
-        const orderIds = data.map((o) => o.id);
+        const orderIds = visibleOrders.map((o) => o.id);
         const { data: allItems } = await supabase
           .from('order_items')
           .select('order_id, educator_name')
@@ -110,7 +113,7 @@ function HistoricoContent() {
           });
         }
 
-        data.forEach((order) => {
+        visibleOrders.forEach((order) => {
           ordersWithEducator.push({
             ...order,
             dominant_educator: educatorMap.get(order.id) || '',
