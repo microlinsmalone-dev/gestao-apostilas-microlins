@@ -20,13 +20,27 @@ import {
   Search,
   Loader2,
   RotateCcw,
-  Pencil
+  Pencil,
+  Sparkles,
+  Upload
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
 import { cleanSubject, normalizeText, formatOrderTitle, toFirstName } from '../../lib/domain/sanitizer';
 import { createDuplicateFingerprint } from '../../lib/domain/duplicates';
 import { useDialog } from '../../components/ui/dialog';
 import { Educator } from '../../types';
+import { parseSpreadsheetBuffer } from '../../lib/importers';
+import {
+  loadAutocompleteBase,
+  buildAutocompleteBase,
+  saveAutocompleteBase,
+  searchStudents,
+  searchSubjects,
+  AutocompleteReferenceBase,
+  AutocompleteStudent,
+  AUTOCOMPLETE_EVENT_NAME
+} from '../../lib/domain/autocomplete-service';
+import { AutocompleteInput, AutocompleteItem } from '../../components/ui/autocomplete-input';
 
 interface ManualRow {
   id: string;
@@ -88,6 +102,23 @@ function NovoPedidoManualContent() {
 
   // Mapa de duplicidades históricas: fingerprint -> HistoricalEntry[]
   const [historicalMap, setHistoricalMap] = useState<Map<string, HistoricalEntry[]>>(new Map());
+
+  // Base de Referência de Autopreenchimento (persistida a partir de Novo Pedido)
+  const [autocompleteBase, setAutocompleteBase] = useState<AutocompleteReferenceBase | null>(null);
+
+  // Carrega a base salva e escuta atualizações de novas importações
+  useEffect(() => {
+    const base = loadAutocompleteBase();
+    if (base) setAutocompleteBase(base);
+
+    const handleAutoUpdate = (e: any) => {
+      setAutocompleteBase(e.detail || loadAutocompleteBase());
+    };
+    window.addEventListener(AUTOCOMPLETE_EVENT_NAME, handleAutoUpdate);
+    return () => {
+      window.removeEventListener(AUTOCOMPLETE_EVENT_NAME, handleAutoUpdate);
+    };
+  }, []);
 
   // Estado do Modal de Colagem Rápida
   const [showPasteModal, setShowPasteModal] = useState(false);
@@ -525,6 +556,113 @@ function NovoPedidoManualContent() {
       const subjectInput = document.getElementById(`subject-input-${index}`) as HTMLInputElement | null;
       if (subjectInput) subjectInput.focus();
     }
+  };
+
+  // Helper para buscar sugestões de alunos no autocompletar
+  const getStudentSuggestions = (query: string): AutocompleteItem[] => {
+    if (!query || query.trim().length < 1) return [];
+    const matches = searchStudents(query, autocompleteBase, 6);
+    return matches.map((st) => ({
+      id: st.nameNormalized,
+      title: st.name,
+      badge: st.course,
+      subtitle: [
+        st.lastSubject ? `Matéria: ${st.lastSubject}` : '',
+        st.educator ? `Educador: ${st.educator}` : '',
+      ]
+        .filter(Boolean)
+        .join(' • '),
+      rawData: st,
+    }));
+  };
+
+  // Helper para buscar sugestões de matérias no autocompletar
+  const getSubjectSuggestions = (query: string, studentName: string): AutocompleteItem[] => {
+    const matchedStudent = autocompleteBase?.students.find(
+      (st) => st.nameNormalized === normalizeText(studentName)
+    );
+    const matches = searchSubjects(query, autocompleteBase, matchedStudent, 7);
+    return matches.map((sub) => ({
+      id: sub,
+      title: sub,
+      badge: matchedStudent?.lastSubject === sub ? 'Recomendada' : undefined,
+      rawData: sub,
+    }));
+  };
+
+  // Callback ao selecionar um aluno no autocompletar
+  const handleSelectStudent = (rowId: string, index: number, item: AutocompleteItem) => {
+    const student = item.rawData as AutocompleteStudent;
+    const current = rows.find((r) => r.id === rowId);
+
+    // Preenche nome do aluno
+    handleRowChange(rowId, 'studentName', student.name);
+
+    // Se matéria estiver em branco e houver última matéria conhecida do aluno, sugere/preenche
+    if (student.lastSubject && current && !current.subjectName.trim()) {
+      handleRowChange(rowId, 'subjectName', student.lastSubject);
+    }
+
+    // Se educador da linha estiver em branco e o aluno tiver educador mapeado, preenche
+    if (student.educator && current && !current.educatorName?.trim()) {
+      handleRowChange(rowId, 'educatorName', student.educator);
+    }
+
+    // Move o foco para o campo de Matéria
+    setTimeout(() => {
+      const subjectInput = document.getElementById(`subject-input-${index}`) as HTMLInputElement | null;
+      if (subjectInput) {
+        subjectInput.focus();
+        if (student.lastSubject) {
+          subjectInput.select();
+        }
+      }
+    }, 40);
+  };
+
+  // Callback ao selecionar uma matéria no autocompletar
+  const handleSelectSubject = (rowId: string, index: number, item: AutocompleteItem) => {
+    const subject = item.rawData as string;
+    handleRowChange(rowId, 'subjectName', subject);
+
+    // Move o foco para o próximo aluno (ou adiciona nova linha se for a última)
+    setTimeout(() => {
+      if (index === rows.length - 1) {
+        handleAddRow();
+      } else {
+        const nextInput = document.getElementById(`student-input-${index + 1}`) as HTMLInputElement | null;
+        if (nextInput) nextInput.focus();
+      }
+    }, 40);
+  };
+
+  // Upload direto da Planilha de Referência na tela manual
+  const handleDirectBaseUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const buffer = event.target?.result as ArrayBuffer;
+        if (buffer) {
+          const result = parseSpreadsheetBuffer(buffer, {
+            allLessons: true,
+          });
+          const base = buildAutocompleteBase(file.name, result.rawRows, result.eligibleItems);
+          saveAutocompleteBase(base);
+          setAutocompleteBase(base);
+          showToast(
+            `Base de autopreenchimento atualizada com ${base.students.length} alunos e ${base.subjects.length} matérias!`,
+            'success'
+          );
+        }
+      } catch (err: any) {
+        showAlert(`Erro ao processar planilha: ${err.message}`, 'error', 'Importação da Base');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
   };
 
   // Processa colagem de texto/planilha (apenas Aluno e Matéria)
@@ -1189,6 +1327,64 @@ function NovoPedidoManualContent() {
         </div>
       </div>
 
+      {/* Banner da Base de Autopreenchimento Ativa */}
+      {autocompleteBase ? (
+        <div className="bg-gradient-to-r from-blue-50/90 via-indigo-50/50 to-white border border-blue-200/90 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-[#0f3b7d] text-white flex items-center justify-center shrink-0 shadow-2xs">
+              <Sparkles className="w-4 h-4 text-amber-300" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-slate-800 text-xs">Base de Autopreenchimento Ativa:</span>
+                <span className="font-bold text-[#0f3b7d] text-xs truncate max-w-[260px]" title={autocompleteBase.fileName}>
+                  {autocompleteBase.fileName}
+                </span>
+                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-blue-100 text-[#0f3b7d] border border-blue-200">
+                  {autocompleteBase.students.length} alunos
+                </span>
+                <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">
+                  {autocompleteBase.subjects.length} matérias
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Nomes e matérias são sugeridos automaticamente conforme você digita. Para atualizar, importe a nova planilha em <strong>Novo Pedido</strong> ou clique ao lado.
+              </p>
+            </div>
+          </div>
+
+          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors cursor-pointer shadow-2xs shrink-0">
+            <Upload className="w-3.5 h-3.5 text-[#0f3b7d]" />
+            <span>Atualizar Base (.xlsx)</span>
+            <input
+              type="file"
+              accept=".xls,.xlsx,.csv,.txt"
+              onChange={handleDirectBaseUpload}
+              className="hidden"
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs text-xs">
+          <div className="flex items-center gap-2.5 text-amber-900">
+            <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>Dica:</strong> Importe seu arquivo de Pedido de Materiais na aba <strong>Novo Pedido</strong> (ou pelo botão ao lado) para salvar a base e autocompletar nomes e matérias automaticamente.
+            </span>
+          </div>
+          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-2xs shrink-0">
+            <Upload className="w-3.5 h-3.5" />
+            <span>Importar Base (.xlsx)</span>
+            <input
+              type="file"
+              accept=".xls,.xlsx,.csv,.txt"
+              onChange={handleDirectBaseUpload}
+              className="hidden"
+            />
+          </label>
+        </div>
+      )}
+
       {/* Grid de Digitação Focada (Apenas Aluno e Matéria) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-4 bg-slate-50/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
@@ -1275,19 +1471,20 @@ function NovoPedidoManualContent() {
                       {index + 1}
                     </td>
 
-                    {/* Aluno */}
+                    {/* Aluno com Autocompletar */}
                     <td className="py-2 px-3">
                       <div className="space-y-1">
-                        <input
+                        <AutocompleteInput
                           id={`student-input-${index}`}
-                          ref={isLast ? lastRowInputRef : undefined}
-                          type="text"
-                          autoComplete="off"
+                          inputRef={isLast ? lastRowInputRef : undefined}
                           value={row.studentName}
-                          onChange={(e) => handleRowChange(row.id, 'studentName', e.target.value)}
+                          onChange={(val) => handleRowChange(row.id, 'studentName', val)}
+                          onSelect={(item) => handleSelectStudent(row.id, index, item)}
                           onKeyDown={(e) => handleStudentKeyDown(e, index)}
+                          suggestions={getStudentSuggestions(row.studentName)}
                           placeholder="Nome completo do aluno"
                           className="w-full px-3 py-1.5 border border-slate-300 rounded font-medium text-slate-900 text-xs focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
+                          minChars={1}
                         />
                         {dupInfo && (
                           <div className="flex flex-col gap-0.5 text-[10px] text-amber-700 font-semibold mt-1">
@@ -1308,18 +1505,19 @@ function NovoPedidoManualContent() {
                       </div>
                     </td>
 
-                    {/* Matéria */}
+                    {/* Matéria com Autocompletar */}
                     <td className="py-2 px-3">
-                      <input
+                      <AutocompleteInput
                         id={`subject-input-${index}`}
-                        type="text"
-                        autoComplete="off"
                         value={row.subjectName}
-                        onChange={(e) => handleRowChange(row.id, 'subjectName', e.target.value)}
+                        onChange={(val) => handleRowChange(row.id, 'subjectName', val)}
                         onBlur={(e) => handleSubjectBlur(row.id, e.target.value)}
+                        onSelect={(item) => handleSelectSubject(row.id, index, item)}
                         onKeyDown={(e) => handleSubjectKeyDown(e, index)}
+                        suggestions={getSubjectSuggestions(row.subjectName, row.studentName)}
                         placeholder="Ex: Windows 11 ou 161869_Windows 11"
                         className="w-full px-3 py-1.5 border border-slate-300 rounded text-slate-800 text-xs focus:outline-none focus:ring-2 focus:ring-[#0f3b7d]"
+                        minChars={0}
                       />
                     </td>
 

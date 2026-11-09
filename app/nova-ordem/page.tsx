@@ -30,7 +30,8 @@ import {
   Ban,
   Calendar,
   Clock,
-  CalendarClock
+  CalendarClock,
+  Sparkles
 } from 'lucide-react';
 import {
   parseSpreadsheetBuffer,
@@ -47,6 +48,12 @@ import {
 } from '../../lib/importers';
 import { analyzeDuplicates, createDuplicateFingerprint } from '../../lib/domain/duplicates';
 import { formatOrderTitle, normalizeText, toFirstName } from '../../lib/domain/sanitizer';
+import {
+  buildAutocompleteBase,
+  saveAutocompleteBase,
+  loadAutocompleteBase,
+  AutocompleteReferenceBase
+} from '../../lib/domain/autocomplete-service';
 import { ProcessedStudentItem, Educator } from '../../types';
 import { supabase } from '../../lib/supabase/client';
 import { useDialog } from '../../components/ui/dialog';
@@ -63,6 +70,14 @@ export default function NovaOrdemPage() {
   const [fileName, setFileName] = useState('');
   const [rawBuffer, setRawBuffer] = useState<ArrayBuffer | null>(null);
   const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
+
+  // Base de Referência de Autopreenchimento (persistida para pedidos manuais)
+  const [autocompleteBaseInfo, setAutocompleteBaseInfo] = useState<{
+    fileName: string;
+    totalStudents: number;
+    totalSubjects: number;
+    updatedAt: string;
+  } | null>(null);
 
   // Filter State - inicializa lendo configuracao salva ou padrao 2 a 6
   const [lessonMin, setLessonMin] = useState<number>(() => {
@@ -258,6 +273,21 @@ export default function NovaOrdemPage() {
           setHistoricalMap(hist);
         }
 
+        // 4. Carrega status da base de autocompletar persistida
+        try {
+          const autoBase = loadAutocompleteBase();
+          if (autoBase) {
+            setAutocompleteBaseInfo({
+              fileName: autoBase.fileName,
+              totalStudents: autoBase.students.length,
+              totalSubjects: autoBase.subjects.length,
+              updatedAt: autoBase.updatedAt,
+            });
+          }
+        } catch (autoLoadErr) {
+          console.warn('Erro ao carregar status da base de autocompletar:', autoLoadErr);
+        }
+
         // Limpa caches antigos persistidos para garantir que cada importação use planilhas novas
         try {
           localStorage.removeItem('microlins_base_contratos_cache');
@@ -414,7 +444,8 @@ export default function NovaOrdemPage() {
     overrideIgnoredSubjects?: string[],
     overrideExcludedContracts?: string[],
     activeBaseContratos = baseContratos,
-    activeControlePedagogico = controlePedagogico
+    activeControlePedagogico = controlePedagogico,
+    activeFileName = fileName
   ) => {
     try {
       setIsProcessingFile(true);
@@ -466,6 +497,28 @@ export default function NovaOrdemPage() {
         pedagogicalMatched = enrichedResult.matchedCount;
       }
 
+      // Salva e atualiza automaticamente a Base de Referência de Autopreenchimento
+      try {
+        const autoBase = buildAutocompleteBase(
+          activeFileName || fileName || 'Pedido de Materiais',
+          result.rawRows,
+          enrichedItems
+        );
+        saveAutocompleteBase(autoBase);
+        setAutocompleteBaseInfo({
+          fileName: autoBase.fileName,
+          totalStudents: autoBase.students.length,
+          totalSubjects: autoBase.subjects.length,
+          updatedAt: autoBase.updatedAt,
+        });
+        showToast(
+          `Base de autopreenchimento atualizada! ${autoBase.students.length} alunos e ${autoBase.subjects.length} matérias indexados para pedidos manuais.`,
+          'success'
+        );
+      } catch (autoErr) {
+        console.warn('Erro ao atualizar base de autocompletar:', autoErr);
+      }
+
       // Aplica verificação de duplicidades internas e históricas
       // Preserva exclusões manuais feitas pelo usuário para que NÃO voltem ao mudar a faixa de aulas (imagem2)
       const currentExcluded = excludedFingerprintsRef.current;
@@ -503,7 +556,14 @@ export default function NovaOrdemPage() {
       const buffer = event.target?.result as ArrayBuffer;
       if (buffer) {
         setRawBuffer(buffer);
-        processSpreadsheet(buffer);
+        processSpreadsheet(
+          buffer,
+          undefined,
+          undefined,
+          baseContratos,
+          controlePedagogico,
+          file.name
+        );
       }
     };
     reader.readAsArrayBuffer(file);
@@ -1267,6 +1327,19 @@ export default function NovaOrdemPage() {
           <p className="text-[10px] text-slate-400 mt-2">
             * Arquivo Principal: Puxa os alunos e apostilas
           </p>
+          {autocompleteBaseInfo && (
+            <div className="mt-2.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] flex items-center justify-between gap-1.5 shadow-2xs">
+              <div className="flex items-center gap-1.5 truncate">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="truncate">
+                  Autopreenchimento: <strong>{autocompleteBaseInfo.totalStudents} alunos</strong>
+                </span>
+              </div>
+              <span className="text-[10px] text-emerald-700 font-bold shrink-0">
+                Ativo no Manual
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Card 3: Planilha Complementar - Controle Pedagógico (Opcional) */}
