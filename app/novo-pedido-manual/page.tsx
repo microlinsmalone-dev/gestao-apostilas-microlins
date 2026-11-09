@@ -483,6 +483,7 @@ function NovoPedidoManualContent() {
     setRows((prev) => [...prev, DEFAULT_ROW()]);
     setTimeout(() => {
       if (lastRowInputRef.current) {
+        lastRowInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         lastRowInputRef.current.focus();
       }
     }, 50);
@@ -544,7 +545,10 @@ function NovoPedidoManualContent() {
         handleAddRow();
       } else {
         const nextInput = document.getElementById(`student-input-${index + 1}`) as HTMLInputElement | null;
-        if (nextInput) nextInput.focus();
+        if (nextInput) {
+          nextInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          nextInput.focus();
+        }
       }
     }
   };
@@ -565,7 +569,7 @@ function NovoPedidoManualContent() {
     return matches.map((st) => ({
       id: st.nameNormalized,
       title: st.name,
-      badge: st.course,
+      badge: st.course ? cleanSubject(st.course) : undefined,
       subtitle: [
         st.lastSubject ? `Matéria: ${st.lastSubject}` : '',
         st.educator ? `Educador: ${st.educator}` : '',
@@ -631,7 +635,10 @@ function NovoPedidoManualContent() {
         handleAddRow();
       } else {
         const nextInput = document.getElementById(`student-input-${index + 1}`) as HTMLInputElement | null;
-        if (nextInput) nextInput.focus();
+        if (nextInput) {
+          nextInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          nextInput.focus();
+        }
       }
     }, 40);
   };

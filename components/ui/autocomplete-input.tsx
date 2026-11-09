@@ -45,8 +45,11 @@ export function AutocompleteInput({
 }: AutocompleteInputProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const [openDirection, setOpenDirection] = useState<'down' | 'up'>('down');
+
   const containerRef = useRef<HTMLDivElement>(null);
   const internalInputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Combina o inputRef externo com o interno
   const setCombinedRef = useCallback(
@@ -60,6 +63,35 @@ export function AutocompleteInput({
     },
     [inputRef]
   );
+
+  // Calcula dinamicamente se o dropdown deve abrir para CIMA ou para BAIXO
+  const updateDirection = useCallback(() => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const dropdownHeight = 240; // Altura aproximada do menu (max-h-56)
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+
+    // Se não há espaço confortável abaixo e há mais espaço acima, abre para cima
+    if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+      setOpenDirection('up');
+    } else {
+      setOpenDirection('down');
+    }
+  }, []);
+
+  // Monitora redimensionamento e rolagem para recalcular direção
+  useEffect(() => {
+    if (isOpen) {
+      updateDirection();
+      window.addEventListener('resize', updateDirection);
+      window.addEventListener('scroll', updateDirection, true);
+      return () => {
+        window.removeEventListener('resize', updateDirection);
+        window.removeEventListener('scroll', updateDirection, true);
+      };
+    }
+  }, [isOpen, updateDirection, suggestions]);
 
   // Fecha dropdown ao clicar fora
   useEffect(() => {
@@ -82,10 +114,22 @@ export function AutocompleteInput({
     setHighlightedIndex(-1);
   }, [suggestions]);
 
+  // Rola a lista automaticamente para manter o item selecionado por teclado visível
+  useEffect(() => {
+    if (highlightedIndex >= 0 && listRef.current) {
+      const buttons = listRef.current.querySelectorAll('button');
+      const target = buttons[highlightedIndex];
+      if (target) {
+        target.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [highlightedIndex]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     onChange(val);
     if (val.trim().length >= minChars) {
+      updateDirection();
       setIsOpen(true);
     } else {
       setIsOpen(false);
@@ -94,6 +138,7 @@ export function AutocompleteInput({
 
   const handleInputFocus = () => {
     if (value.trim().length >= minChars && suggestions.length > 0) {
+      updateDirection();
       setIsOpen(true);
     }
   };
@@ -151,6 +196,8 @@ export function AutocompleteInput({
     setIsOpen(false);
   };
 
+  const isUp = openDirection === 'up';
+
   return (
     <div ref={containerRef} className="relative w-full">
       <input
@@ -170,7 +217,14 @@ export function AutocompleteInput({
       />
 
       {isOpen && suggestions.length > 0 && (
-        <div className="absolute left-0 top-full mt-1 w-full min-w-[280px] bg-white rounded-lg shadow-xl border border-slate-200 z-50 overflow-hidden max-h-56 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+        <div
+          ref={listRef}
+          className={`absolute left-0 w-full min-w-[340px] max-w-[480px] bg-white rounded-xl shadow-2xl border border-slate-200 z-50 overflow-hidden max-h-56 overflow-y-auto ${
+            isUp
+              ? 'bottom-full mb-1.5 origin-bottom animate-in fade-in slide-in-from-bottom-2 duration-100'
+              : 'top-full mt-1.5 origin-top animate-in fade-in slide-in-from-top-2 duration-100'
+          }`}
+        >
           <div className="py-1">
             {suggestions.map((item, idx) => {
               const isHighlighted = idx === highlightedIndex;
@@ -195,7 +249,7 @@ export function AutocompleteInput({
                       {item.title}
                     </span>
                     {item.badge && (
-                      <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-100 text-[#0f3b7d] shrink-0">
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-100 text-[#0f3b7d] shrink-0 max-w-[160px] truncate">
                         {item.badge}
                       </span>
                     )}
@@ -213,7 +267,13 @@ export function AutocompleteInput({
       )}
 
       {isOpen && suggestions.length === 0 && emptyMessage && value.trim().length >= minChars && (
-        <div className="absolute left-0 top-full mt-1 w-full bg-white rounded-lg shadow-md border border-slate-200 z-50 p-2.5 text-center text-xs text-slate-400">
+        <div
+          className={`absolute left-0 w-full bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-2.5 text-center text-xs text-slate-400 ${
+            isUp
+              ? 'bottom-full mb-1.5 origin-bottom animate-in fade-in'
+              : 'top-full mt-1.5 origin-top animate-in fade-in'
+          }`}
+        >
           {emptyMessage}
         </div>
       )}

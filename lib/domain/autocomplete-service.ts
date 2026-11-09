@@ -72,7 +72,7 @@ export function buildAutocompleteBase(
     }
 
     const formacaoRaw = getVal(row, 'Formação') || getVal(row, 'Formacao') || getVal(row, 'Contrato Curso');
-    const formacao = formacaoRaw.replace(/\s+/g, ' ').trim();
+    const formacao = cleanSubject(formacaoRaw.replace(/\s+/g, ' ').trim());
     if (formacao) {
       courseSet.add(formacao);
     }
@@ -106,7 +106,7 @@ export function buildAutocompleteBase(
     enrichedItems.forEach((item) => {
       if (item.subjectName) subjectSet.add(item.subjectName);
       if (item.nextSubject) subjectSet.add(cleanSubject(item.nextSubject));
-      if (item.courseName) courseSet.add(item.courseName);
+      if (item.courseName) courseSet.add(cleanSubject(item.courseName));
     });
   }
 
@@ -215,8 +215,13 @@ export function searchStudents(
     }
   }
 
+  const formatStudent = (s: AutocompleteStudent): AutocompleteStudent => ({
+    ...s,
+    course: s.course ? cleanSubject(s.course) : undefined,
+  });
+
   const combined = [...startsWithList, ...wordStartList, ...containsList];
-  return combined.slice(0, limit);
+  return combined.slice(0, limit).map(formatStudent);
 }
 
 /**
